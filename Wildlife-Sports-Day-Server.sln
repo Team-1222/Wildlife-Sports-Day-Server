@@ -1,0 +1,16 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Wildlife-Sports-Day-Server", "Wildlife-Sports-Day-Server\Wildlife-Sports-Day-Server.csproj", "{836A8374-CB64-493E-9620-E28052E02D27}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{836A8374-CB64-493E-9620-E28052E02D27}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{836A8374-CB64-493E-9620-E28052E02D27}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{836A8374-CB64-493E-9620-E28052E02D27}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{836A8374-CB64-493E-9620-E28052E02D27}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

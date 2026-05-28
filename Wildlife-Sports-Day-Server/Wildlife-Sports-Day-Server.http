@@ -1,0 +1,6 @@
+@Wildlife_Sports_Day_Server_HostAddress = http://localhost:5233
+
+GET {{Wildlife_Sports_Day_Server_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
