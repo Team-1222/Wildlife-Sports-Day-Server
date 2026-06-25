@@ -7,7 +7,7 @@ description: Safe Git commit and PR workflow for Wildlife Survival Server. Use w
 
 ## Overview
 
-Use this skill to turn local worktree changes into an intentional Git commit and, when requested, a safe pull request. Preserve user changes, keep commits scoped, and follow this repository's Korean commit convention.
+Use this skill to turn local worktree changes into an intentional Git commit and, when requested, a safe pull request. Preserve user changes, keep commits scoped by staged content, and follow this repository's Korean commit convention.
 
 ## Workflow
 
@@ -48,29 +48,36 @@ Risky work includes:
 Use this exact format:
 
 ```text
-type(scope): 설명
+type: 설명
+
+#<이슈번호>
 ```
 
 Allowed types:
 
-- `add`
-- `update`
+- `feat`
 - `fix`
-- `refactor`
 - `docs`
+- `refactor`
 - `test`
 - `ci`
+- `chore`
 
-Scope must be a domain or meaningful project area, not a layer name. Prefer existing scopes such as `auth`, `score`, `ranking`, `email`; use `codex` for Codex skills/hooks/instructions.
+Do not include scope in the commit title. Include the domain or meaningful project area naturally in the Korean description when useful, such as auth, score, ranking, email, or Codex instructions.
 
 Description must be Korean and must not end with a period.
+
+If a related issue exists, put the issue reference on the first body line as `#<이슈번호>` with no space, for example `#123`. If the issue number is unknown, ask the user before committing. If there is no related issue, omit the body issue line instead of committing a placeholder.
 
 Examples:
 
 ```text
-add(codex): 변경사항 저장 스킬 추가
-update(auth): 이메일 인증 예외 처리 개선
-fix(score): 점수 저장 검증 오류 수정
+feat: 점수 저장 검증 추가
+
+#123
+
+fix: 이메일 인증 예외 처리 개선
+docs: 변경사항 저장 스킬 갱신
 ```
 
 ## Commit Rules
@@ -84,11 +91,11 @@ fix(score): 점수 저장 검증 오류 수정
   - One commit for hook changes under `Codex/hooks/`.
   - One commit for subagent prompt changes under `Codex/agents/`.
   - One commit for settings/config changes only when they are not inseparable from the hook or skill change.
-- If a single request changes multiple independent domains, create multiple commits instead of one broad `update(codex)` commit.
+- If a single request changes multiple independent domains, create multiple commits instead of one broad `chore: Codex 규칙 갱신` commit.
 - Include EF Core migration files in the same commit as the model/configuration change that requires them.
 - Do not commit generated build output, local IDE state, DB dumps, secrets, or unrelated user changes.
 - If verification fails, stop before committing unless the user explicitly asks to commit with a known failure.
-- For Codex instruction, skill, hook, or agent changes, use `docs(codex): ...` or `update(codex): ...` depending on whether behavior changes.
+- For Codex instruction, skill, hook, or agent changes, use `docs: ...` for documentation-only changes or `chore: ...` when the change adjusts Codex workflow behavior.
 
 ## PR Rules
 
@@ -103,7 +110,7 @@ Before PR:
 PR title:
 
 ```text
-type(scope): 설명
+type: 설명
 ```
 
 PR body:

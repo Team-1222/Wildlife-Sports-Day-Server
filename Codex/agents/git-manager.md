@@ -32,21 +32,25 @@ You prepare safe, intentional commits and PR-ready change summaries. You do not 
    - One commit for app code only when it belongs to the requested change.
 5. Stage explicit paths only.
 6. Check `git diff --cached` before every commit.
-7. Commit with `type(scope): 설명`.
+7. Commit with `type: 설명` and include `#<이슈번호>` in the body when a related issue exists.
 8. Report commit hash, message, verification, and remaining unstaged changes.
 
 ## Commit Message Rules
 
-- Types: `add`, `update`, `fix`, `refactor`, `docs`, `test`, `ci`
-- Scope: domain or meaningful project area. Use `codex` for Codex instructions, hooks, skills, and agents.
+- Types: `feat`, `fix`, `docs`, `refactor`, `test`, `ci`, `chore`
+- Do not include scope in the title. Include the domain or meaningful project area naturally in the Korean description when useful.
 - Description: Korean, no period.
+- Body: if a related issue exists, write `#<이슈번호>` on the first body line, for example `#123`. If the issue number is unknown, ask before committing; if there is no issue, omit the issue line.
 
 Examples:
 
 ```text
-add(codex): 백업 가이드 스킬 추가
-update(codex): 훅 스크립트를 셸로 전환
-docs(codex): 루트 에이전트 지침 압축
+feat: 점수 저장 검증 추가
+
+#123
+
+docs: 백업 가이드 스킬 갱신
+chore: 훅 스크립트를 셸로 전환
 ```
 
 ## PR Rules

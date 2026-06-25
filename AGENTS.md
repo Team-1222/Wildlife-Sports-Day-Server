@@ -53,9 +53,11 @@ Wildlife Survival Server는 ASP.NET Core 기반 게임 백엔드입니다. 로�
 
 ## Commit / PR
 
-- 커밋 형식: `type(scope): 설명`
-- Type: `add`, `update`, `fix`, `refactor`, `docs`, `test`, `ci`
-- Scope는 도메인 또는 의미 있는 영역입니다. 레이어명만 쓰지 않습니다.
+- 커밋 제목 형식: `type: 설명`
+- 커밋 본문 첫 줄에는 관련 이슈가 있으면 `#<이슈번호>`를 작성합니다. 예: `#123`
+- 이슈 번호를 모르면 커밋 전 확인하고, 이슈가 없으면 본문 이슈 줄을 생략합니다.
+- Type: `feat`, `fix`, `docs`, `refactor`, `test`, `ci`, `chore`
+- 커밋 제목에는 scope를 넣지 않습니다. 도메인/영역은 설명에 자연스럽게 포함합니다.
 - 기능/영역별로 세부 커밋합니다. 예: 스킬 폴더별, `AGENTS.md`/`Codex/CODEX.md`, 훅, 서브에이전트, 설정 변경을 분리합니다.
 - 여러 스킬이 바뀌면 가능한 한 스킬 종류/폴더별로 1개씩 커밋합니다.
 - 명시 요청 없이는 push, force-push, PR 생성, 리뷰어 요청, ready 전환, merge를 하지 않습니다.

@@ -119,12 +119,20 @@ All APIs respond with `ApiResponse<T>` wrapper:
 
 ### Commit Convention
 
-Format: `type(scope): 설명`
+Title format: `type: 설명`
 
-- Types: `add` / `update` / `fix` / `refactor` / `docs` / `test` / `ci`
-- Scope: domain name (`auth`, `score`, `ranking`, `email`)
+- Body first line: add `#<issue-number>` when a related issue exists, for example `#123`
+- If the issue number is unknown, ask before committing; if there is no related issue, omit the issue line
+- Types: `feat` / `fix` / `docs` / `refactor` / `test` / `ci` / `chore`
+- Do not include scope in the commit title; include the domain naturally in the Korean description when useful
 - Description: Korean, no period
-- Example: `add(auth): 이메일 인증 코드 발송 기능 추가`
+- Example:
+
+```text
+feat: 이메일 인증 코드 발송 기능 추가
+
+#123
+```
 
 ### Commit / PR Rules
 
@@ -136,7 +144,7 @@ Format: `type(scope): 설명`
 - Include EF Core migration files in the same commit as the model/configuration change that requires them.
 - Never commit secrets, DB dumps, real user data, generated build output, IDE metadata, or unrelated user changes.
 - Do not push, force-push, open PRs, request reviewers, mark ready for review, retarget base branches, or merge unless explicitly requested or approved.
-- PR title follows `type(scope): 설명`.
+- PR title follows `type: 설명`.
 - PR body must include Summary, Verification, Impact Scope, and Migration/Backup sections.
 - PRs with DB-impacting changes must document backup status and rollback path.
 
@@ -174,7 +182,7 @@ Format: `type(scope): 설명`
 - **Wrong**: business logic in `Repository` → **Correct**: handle in `Service` layer
 - **Wrong**: `Controller` directly injects `DbContext` → **Correct**: go through `Service`
 - **Wrong**: `async void` method → **Correct**: `async Task`
-- **Wrong**: layer name as commit scope `fix(service):` → **Correct**: domain name `fix(auth):`
+- **Wrong**: scoped commit title `fix(service): 로그인 오류 수정` → **Correct**: unscoped title `fix: 로그인 오류 수정`
 - **Wrong**: silently broadening scope or choosing a schema/security direction by assumption → **Correct**: provide 3 options and wait for developer selection
 
 ## Context Compaction Priority

@@ -34,7 +34,7 @@ Follow this fixed order from `AGENTS.md`:
 5. **DTOs** — Request / Response shapes, validation attributes
 6. **Security considerations** — explicitly check against `Codex/skills/security-checklist/SKILL.md`: secrets, password handling, SQL injection, session, rate limiting
 7. **Backup / rollback considerations** — identify whether code backup, DB backup, or rollback plan is needed
-8. **Commit / PR breakdown** — how to split the work into commits and PR scope following the `type(scope): 설명` convention, one logical change per commit
+8. **Commit / PR breakdown** — how to split the work into commits and PR scope following the `type: 설명` convention, one logical change per commit
 
 ## Decision Guardrail
 
@@ -82,8 +82,8 @@ Format important decisions like this:
 - [ ] ...
 
 ### 7. 커밋 분할
-1. `add(scope): 설명`
-2. `add(scope): 설명`
+1. `feat: 설명`
+2. `test: 설명`
 
 ### 8. 백업 / PR 고려사항
 - 백업 필요 여부: ...

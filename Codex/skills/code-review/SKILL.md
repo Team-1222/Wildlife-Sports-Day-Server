@@ -71,9 +71,10 @@ Each item is marked as pass (✅) / fail (❌) / not applicable (➖).
 
 ### 9. Commit Convention
 
-- [ ] Format: `type(scope): 한국어 설명`
-- [ ] Types: `add` / `update` / `fix` / `refactor` / `docs` / `test` / `ci`
-- [ ] Scope: domain name (`auth`, `score`, `ranking`, `email`) — no layer names
+- [ ] Title format: `type: 한국어 설명`
+- [ ] Types: `feat` / `fix` / `docs` / `refactor` / `test` / `ci` / `chore`
+- [ ] No scope in the title; include the domain naturally in the description when useful
+- [ ] Related issue is written in the body as `#<이슈번호>` when one exists
 - [ ] No trailing period
 
 ---

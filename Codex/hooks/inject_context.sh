@@ -49,7 +49,7 @@ esac
 
 case "$lower" in
   *commit*|*git*|*pr*|*pull\ request*)
-    add_snippet "[context] Commit/PR rules: type(scope): 한국어설명 (no period). One logical change per commit. Do not push or open PRs without explicit approval. PRs with DB impact need backup and rollback notes."
+    add_snippet "[context] Commit/PR rules: commit title is type: 한국어설명 (no period, no scope). If a related issue exists, first body line is #<issue-number>. One logical change per commit. Do not push or open PRs without explicit approval. PRs with DB impact need backup and rollback notes."
     ;;
 esac
 
