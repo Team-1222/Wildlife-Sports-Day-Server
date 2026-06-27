@@ -5,6 +5,14 @@ const raw = await readStdin();
 const payload = parsePayload(raw);
 const filePath = getString(payload, "file_path", "path");
 const shouldScanChangedFiles = process.argv.includes("--scan-changed");
+const csharpTextKeys = new Set([
+  "content",
+  "file_content",
+  "fileContent",
+  "new_string",
+  "newString",
+  "text"
+]);
 
 const errors = [];
 const warnings = [];
@@ -50,13 +58,40 @@ function scanContent(content, sourcePath) {
   }
 }
 
+function collectCsharpTexts(value, texts = []) {
+  if (value === null || value === undefined) {
+    return texts;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectCsharpTexts(item, texts);
+    }
+    return texts;
+  }
+
+  if (typeof value === "object") {
+    for (const [key, nestedValue] of Object.entries(value)) {
+      if (csharpTextKeys.has(key) && typeof nestedValue === "string") {
+        texts.push(nestedValue);
+      } else {
+        collectCsharpTexts(nestedValue, texts);
+      }
+    }
+  }
+
+  return texts;
+}
+
 if (filePath) {
   if (!filePath.endsWith(".cs")) {
     if (!shouldScanChangedFiles) {
       process.exit(0);
     }
   } else {
-    scanContent(raw, filePath);
+    for (const csharpText of collectCsharpTexts(payload)) {
+      scanContent(csharpText, filePath);
+    }
   }
 }
 
