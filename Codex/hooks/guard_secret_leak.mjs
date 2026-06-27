@@ -6,6 +6,14 @@ const payload = parsePayload(raw);
 const filePath = getString(payload, "file_path", "path");
 const shouldScanChangedFiles = process.argv.includes("--scan-changed");
 const violations = [];
+const fileTextKeys = new Set([
+  "content",
+  "file_content",
+  "fileContent",
+  "new_string",
+  "newString",
+  "text"
+]);
 
 function addViolation(message) {
   violations.push(`  - ${message}`);
@@ -15,11 +23,11 @@ function scanContent(content, sourcePath) {
   const hasSafePlaceholder = /your-password-here|changeme|your-app-password|<password>|<secret>|your-email@gmail\.com/i.test(content);
 
   if (!hasSafePlaceholder) {
-    if (/Password\s*=\s*["']?[A-Za-z0-9@#$%^&*!_-]{4,}/i.test(content)) {
+    if (/["']?Password["']?\s*[:=]\s*["']?[A-Za-z0-9@#$%^&*!_-]{4,}["']?/i.test(content)) {
       addViolation(`hardcoded DB password in connection string in ${sourcePath}`);
     }
 
-    if (/(AppPassword|SmtpPassword|ApiKey|SecretKey)\s*[:=]\s*["'][^"']{4,}["']/i.test(content)) {
+    if (/["']?(AppPassword|SmtpPassword|ApiKey|SecretKey)["']?\s*[:=]\s*["'][^"']{4,}["']/i.test(content)) {
       addViolation(`hardcoded credential value in ${sourcePath}`);
     }
 
@@ -27,7 +35,7 @@ function scanContent(content, sourcePath) {
       addViolation(`possible Gmail app password in ${sourcePath}`);
     }
 
-    if (/(JwtSecret|TokenSecret|SigningKey)\s*[:=]\s*["'][^"']{8,}["']/i.test(content)) {
+    if (/["']?(JwtSecret|TokenSecret|SigningKey)["']?\s*[:=]\s*["'][^"']{8,}["']/i.test(content)) {
       addViolation(`hardcoded JWT secret in ${sourcePath}`);
     }
 
@@ -41,10 +49,34 @@ function scanContent(content, sourcePath) {
   }
 }
 
-if (filePath) {
-  scanContent(raw, filePath);
-} else {
-  scanContent(raw, "hook payload");
+function collectFileTexts(value, texts = []) {
+  if (value === null || value === undefined) {
+    return texts;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectFileTexts(item, texts);
+    }
+    return texts;
+  }
+
+  if (typeof value === "object") {
+    for (const [key, nestedValue] of Object.entries(value)) {
+      if (fileTextKeys.has(key) && typeof nestedValue === "string") {
+        texts.push(nestedValue);
+      } else {
+        collectFileTexts(nestedValue, texts);
+      }
+    }
+  }
+
+  return texts;
+}
+
+const payloadFileTexts = collectFileTexts(payload);
+for (const fileText of payloadFileTexts) {
+  scanContent(fileText, filePath || "hook file content");
 }
 
 if (shouldScanChangedFiles) {
