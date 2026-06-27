@@ -15,7 +15,7 @@ Wildlife Survival Server는 ASP.NET Core 기반 게임 백엔드입니다. 로�
 - Build: `dotnet build`
 - Run: `dotnet run`
 - Add migration: `dotnet ef migrations add <Name>`
-- Apply DB: `dotnet ef database update`  
+- Apply DB: `dotnet ef database update`
   단, DB 적용은 명시 승인 없이는 실행하지 않습니다.
 
 ## Core Rules
@@ -79,6 +79,7 @@ Wildlife Survival Server는 ASP.NET Core 기반 게임 백엔드입니다. 로�
 - Exception middleware: `Wildlife-Sports-Day-Server/Middleware/ExceptionMiddleware.cs`
 - ApiResponse: `Wildlife-Sports-Day-Server/Dtos/Responses/ApiResponse.cs`
 - AppException: `Wildlife-Sports-Day-Server/Exceptions/AppException.cs`
-- Hooks: `Codex/hooks/`
+- Hook config: `.codex/hooks.json`
+- Hooks: `Codex/hooks/*.mjs`
 - Agents: `Codex/agents/`
 - Skills: `Codex/skills/<skill-name>/SKILL.md`

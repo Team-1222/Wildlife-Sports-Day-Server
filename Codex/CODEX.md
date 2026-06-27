@@ -4,7 +4,7 @@
 
 ## Project Overview
 
-Backend server for the Wildlife Survival game.  
+Backend server for the Wildlife Survival game.
 ASP.NET Core REST API providing login, registration (with email verification), score saving, and ranking features.
 
 ## Tech Stack
@@ -37,6 +37,9 @@ Unidirectional dependency: `Controller → Service → Repository`
 ## Codex Resource Structure
 
 ```
+/.codex/
+└── hooks.json           # Project-local Codex hook configuration
+
 Codex/
 ├── agents/              # Project-specific subagent prompts
 │   ├── implementer.md
@@ -46,7 +49,7 @@ Codex/
 │   ├── reviewer.md
 │   ├── security-guardian.md
 │   └── tester.md
-├── hooks/               # Hook scripts referenced by settings.json
+├── hooks/               # Node hook scripts referenced by .codex/hooks.json
 ├── skills/              # Project-specific skill folders
 │   ├── aspnet-arch/SKILL.md
 │   ├── auth-security/SKILL.md
@@ -56,7 +59,6 @@ Codex/
 │   ├── migration-guide/SKILL.md
 │   ├── save-changes/SKILL.md
 │   └── security-checklist/SKILL.md
-├── settings.json
 └── CODEX.md
 ```
 
