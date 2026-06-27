@@ -14,7 +14,7 @@
         ]
       },
       {
-        "matcher": "Edit|Write",
+        "matcher": "Bash|Edit|Write",
         "hooks": [
           {
             "type": "command",
@@ -28,12 +28,24 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Edit|Write",
+        "matcher": "Bash|Edit|Write",
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/Codex/hooks/validate_csharp_conventions.mjs\"",
-            "commandWindows": "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"node (Join-Path (git rev-parse --show-toplevel) 'Codex/hooks/validate_csharp_conventions.mjs')\"",
+            "command": "node \"$(git rev-parse --show-toplevel)/Codex/hooks/guard_secret_leak.mjs\" --scan-changed",
+            "commandWindows": "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"node (Join-Path (git rev-parse --show-toplevel) 'Codex/hooks/guard_secret_leak.mjs') --scan-changed\"",
+            "timeout": 10,
+            "statusMessage": "Scanning changed files for hardcoded secrets"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/Codex/hooks/validate_csharp_conventions.mjs\" --scan-changed",
+            "commandWindows": "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"node (Join-Path (git rev-parse --show-toplevel) 'Codex/hooks/validate_csharp_conventions.mjs') --scan-changed\"",
             "timeout": 15,
             "statusMessage": "Checking C# conventions"
           }

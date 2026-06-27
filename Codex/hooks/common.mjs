@@ -1,5 +1,6 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { execFileSync } from "node:child_process";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const hookDir = dirname(fileURLToPath(import.meta.url));
@@ -114,6 +115,15 @@ export function readText(path) {
   return readFileSync(path, "utf8");
 }
 
+export function readTextIfSmall(path, maxBytes = 1024 * 1024) {
+  const stats = statSync(path);
+  if (!stats.isFile() || stats.size > maxBytes) {
+    return undefined;
+  }
+
+  return readFileSync(path, "utf8");
+}
+
 export function fileExists(path) {
   return existsSync(path);
 }
@@ -132,4 +142,44 @@ export function logPath(fileName) {
 
 export function escapeJsonText(value) {
   return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+export function listChangedFiles() {
+  const files = new Set();
+
+  for (const args of [
+    ["diff", "--name-only", "--diff-filter=ACMRTUXB"],
+    ["diff", "--cached", "--name-only", "--diff-filter=ACMRTUXB"],
+    ["ls-files", "--others", "--exclude-standard"]
+  ]) {
+    try {
+      const output = execFileSync("git", args, {
+        cwd: projectRoot,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"]
+      });
+
+      for (const line of output.split(/\r?\n/)) {
+        const file = line.trim();
+        if (file) {
+          files.add(file);
+        }
+      }
+    } catch {
+      // Hooks should not fail just because git cannot list files.
+    }
+  }
+
+  return [...files];
+}
+
+export function resolveProjectFile(relativePath) {
+  const fullPath = resolve(projectRoot, relativePath);
+  const rootPath = resolve(projectRoot);
+
+  if (fullPath !== rootPath && !fullPath.startsWith(`${rootPath}\\`) && !fullPath.startsWith(`${rootPath}/`)) {
+    return undefined;
+  }
+
+  return fullPath;
 }
