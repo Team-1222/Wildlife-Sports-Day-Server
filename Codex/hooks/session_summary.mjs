@@ -23,7 +23,7 @@ const records = recent.map((line) => {
 
 const succeeded = records.filter((record) => record.success === true).length;
 const failed = records.length - succeeded;
-const commands = records.map((record) => String(record.command || "")).filter(Boolean).slice(0, 3);
+const commands = records.map((record) => String(record.command || "")).filter(Boolean).slice(-3);
 
 printStderr("");
 printStderr("==============================================");
@@ -41,4 +41,3 @@ if (commands.length > 0) {
 }
 
 printStderr("");
-
