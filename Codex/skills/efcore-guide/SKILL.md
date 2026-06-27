@@ -139,7 +139,7 @@ For migration planning, generation, review, rollback, scripts, or database updat
 
 ```bash
 # Add migration
-dotnet ef migrations add InitialCreate --project WildlifeSurvivalServer
+dotnet ef migrations add InitialCreate --project Wildlife-Sports-Day-Server/Wildlife-Sports-Day-Server.csproj
 
 # Apply to DB
 dotnet ef database update
