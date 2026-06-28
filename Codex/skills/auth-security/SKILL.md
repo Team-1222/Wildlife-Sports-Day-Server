@@ -82,7 +82,14 @@ public async Task SendVerificationEmailAsync(string email)
 }
 
 private static string GenerateVerificationCode()
-    => Random.Shared.Next(100000, 1000000).ToString();
+{
+    int code = Random.Shared.Next(100000, 1000000);     
+    while(code % 111111 == 0)//연속된 6자리 숫자는 제외
+    {
+        code = Random.Shared.Next(100000, 1000000);
+    }
+    return code.ToString()
+}
 ```
 
 ---
