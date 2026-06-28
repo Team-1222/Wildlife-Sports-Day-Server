@@ -82,7 +82,7 @@ public async Task SendVerificationEmailAsync(string email)
 }
 
 private static string GenerateVerificationCode()
-    => Random.Shared.Next(100000, 999999).ToString();
+    => Random.Shared.Next(100000, 1000000).ToString();
 ```
 
 ---
