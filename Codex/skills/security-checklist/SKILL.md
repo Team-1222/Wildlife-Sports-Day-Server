@@ -109,19 +109,22 @@ throw new AppException("이메일 또는 비밀번호가 올바르지 않습니�
 ### Session Fixation Attack Prevention
 
 ```csharp
-// Regenerate session after successful login
+// Do not treat ISession.Clear() or CommitAsync() as session identifier rotation.
+// Fresh sign-in/session reissue must be implemented by the configured auth/session strategy.
 public async Task<LoginResponse> LoginAsync(LoginRequest request, HttpContext httpContext)
 {
     // ... password verification ...
 
-    // ✅ Clear existing session before saving new one
-    await httpContext.Session.CommitAsync();
-    httpContext.Session.Clear();
+    // If the app uses cookie authentication, issue a fresh auth cookie after validation.
+    // If the app uses a custom server-side session store, rotate the session key there.
+    // ISession.Clear() only removes session entries; it must not be documented as cookie rotation.
 
     httpContext.Session.SetInt32("UserId", user.Id);
     httpContext.Session.SetString("UserEmail", user.Email);
 }
 ```
+
+`ISession.Clear()` is useful for logout or removing existing session values, but it does not guarantee a new session cookie or session identifier. For session fixation mitigation, define a fresh sign-in/session reissue flow in the authentication design instead of relying on `Clear()` or `CommitAsync()`.
 
 ---
 
@@ -199,7 +202,7 @@ app.Use(async (context, next) =>
 ### 🔐 Authentication Security
 ✅ BCrypt hashing in use
 ✅ User enumeration prevention message used
-❌ Session regeneration after login missing
+❌ Fresh sign-in/session reissue flow missing for session fixation mitigation
 
 ### 🍪 Session Security
 ✅ HttpOnly configured
