@@ -19,30 +19,57 @@ function addViolation(message) {
   violations.push(`  - ${message}`);
 }
 
-function scanContent(content, sourcePath) {
-  const hasSafePlaceholder = /your-password-here|changeme|your-app-password|<password>|<secret>|your-email@gmail\.com/i.test(content);
+function isSafePlaceholderValue(value) {
+  return /^(your-password-here|changeme|your-app-password|<password>|<secret>|your-email@gmail\.com)$/i.test(value.trim());
+}
 
-  if (!hasSafePlaceholder) {
-    if (/["']?Password["']?\s*[:=]\s*["']?[A-Za-z0-9@#$%^&*!_-]{4,}["']?/i.test(content)) {
-      addViolation(`hardcoded DB password in connection string in ${sourcePath}`);
+function addPatternViolations(content, sourcePath, pattern, valueGroupIndex, message) {
+  for (const match of content.matchAll(pattern)) {
+    const matchedValue = match[valueGroupIndex] ?? "";
+    if (isSafePlaceholderValue(matchedValue)) {
+      continue;
     }
 
-    if (/["']?(AppPassword|SmtpPassword|ApiKey|SecretKey)["']?\s*[:=]\s*["'][^"']{4,}["']/i.test(content)) {
-      addViolation(`hardcoded credential value in ${sourcePath}`);
-    }
-
-    if (/[a-z]{4}\s[a-z]{4}\s[a-z]{4}\s[a-z]{4}/i.test(content)) {
-      addViolation(`possible Gmail app password in ${sourcePath}`);
-    }
-
-    if (/["']?(JwtSecret|TokenSecret|SigningKey)["']?\s*[:=]\s*["'][^"']{8,}["']/i.test(content)) {
-      addViolation(`hardcoded JWT secret in ${sourcePath}`);
-    }
-
-    if (/-----BEGIN (RSA |EC )?PRIVATE KEY-----/.test(content)) {
-      addViolation(`private key material in ${sourcePath}`);
-    }
+    addViolation(`${message} in ${sourcePath}`);
   }
+}
+
+function scanContent(content, sourcePath) {
+  addPatternViolations(
+    content,
+    sourcePath,
+    /(?<![A-Za-z0-9_])["']?Password["']?\s*[:=]\s*["']?([^"'\s;,\r\n}]{4,})["']?/gi,
+    1,
+    "hardcoded DB password in connection string"
+  );
+
+  addPatternViolations(
+    content,
+    sourcePath,
+    /(?<![A-Za-z0-9_])["']?(AppPassword|SmtpPassword|ApiKey|SecretKey)["']?\s*[:=]\s*["']?([^"',\r\n}]{4,})["']?/gi,
+    2,
+    "hardcoded credential value"
+  );
+
+  addPatternViolations(
+    content,
+    sourcePath,
+    /(?<![A-Za-z0-9_])["']?(JwtSecret|TokenSecret|SigningKey)["']?\s*[:=]\s*["']?([^"',\r\n}]{8,})["']?/gi,
+    2,
+    "hardcoded JWT secret"
+  );
+
+  if (/-----BEGIN (RSA |EC )?PRIVATE KEY-----/.test(content)) {
+    addViolation(`private key material in ${sourcePath}`);
+  }
+
+  addPatternViolations(
+    content,
+    sourcePath,
+    /\b([a-z]{4}\s[a-z]{4}\s[a-z]{4}\s[a-z]{4})\b/gi,
+    1,
+    "possible Gmail app password"
+  );
 
   if (/(^|[\\/])(appsettings(?:\.[^.\\/]+)?\.json|\.env)$/i.test(sourcePath) && /"Password"\s*:\s*"[^"]{1,}"/.test(content)) {
     addViolation(`non-empty Password field found in sensitive config file: ${sourcePath}`);
