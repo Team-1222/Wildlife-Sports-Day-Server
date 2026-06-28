@@ -4,6 +4,11 @@ import { getString, outputBlock, parsePayload, readStdin } from "./common.mjs";
 const raw = await readStdin();
 const payload = parsePayload(raw);
 const command = getString(payload, "command");
+if (!command.trim()) {
+  outputBlock("[security-hook] Blocked shell tool call because the hook payload did not include a non-empty command.");
+  process.exit(0);
+}
+
 const commandLower = command.toLowerCase();
 
 const blockedPatterns = [
@@ -45,4 +50,3 @@ for (const [label, pattern] of warnPatterns) {
     process.exit(0);
   }
 }
-
