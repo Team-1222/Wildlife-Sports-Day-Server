@@ -33,6 +33,16 @@ Use this skill to turn local worktree changes into an intentional Git commit and
 12. Report the commit hash, message, verification result, per-file summary, and any remaining unstaged changes.
 13. Do not push or open a PR unless the user explicitly asks.
 
+## Ambiguous Commit Requests
+
+When the user asks to modify, fix, rewrite, amend, reword, reorder, squash, or otherwise change commits, first identify the exact target commit or commit range before running any history-changing command.
+
+- If the user names a commit hash, branch range, or clear target such as "the last commit", operate only on that target.
+- If the request can refer to pushed commits, unpushed commits, multiple commits, or the whole branch, stop and ask which commit or range should be changed.
+- Do not infer that every commit in the branch should be modified from a general request such as "커밋을 수정해줘", "본문을 추가해줘", or "이슈 번호를 넣어줘".
+- Before changing pushed commits, confirm whether rewriting published history is acceptable and preserve a safety branch.
+- Prefer non-history-changing fixes, such as a follow-up commit, unless the user explicitly asks to rewrite existing commits.
+
 ## Pre-Commit Backup Check
 
 Before committing risky work, load `Codex/skills/backup-guide/SKILL.md` and confirm the backup/rollback path.
