@@ -150,7 +150,15 @@ public async Task<RegisterResponse> RegisterAsync(RegisterRequest request)
 
 ---
 
-## Login Service (Session-based)
+## Login Service (Cookie-based)
+
+Required namespaces:
+
+```csharp
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
+```
 
 ```csharp
 public async Task<LoginResponse> LoginAsync(LoginRequest request, HttpContext httpContext)
@@ -163,9 +171,25 @@ public async Task<LoginResponse> LoginAsync(LoginRequest request, HttpContext ht
     if (!BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
         throw new AppException("이메일 또는 비밀번호가 올바르지 않습니다.", StatusCodes.Status401Unauthorized);
 
-    // 3. Save session
-    httpContext.Session.SetInt32("UserId", user.Id);
-    httpContext.Session.SetString("UserEmail", user.Email);
+    // 3. Issue authentication cookie
+    var claims = new List<Claim>
+    {
+        new(ClaimTypes.NameIdentifier, user.Id.ToString()),
+        new(ClaimTypes.Email, user.Email),
+        new(ClaimTypes.Name, user.Nickname)
+    };
+
+    var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
+    var principal = new ClaimsPrincipal(identity);
+
+    await httpContext.SignInAsync(
+        CookieAuthenticationDefaults.AuthenticationScheme,
+        principal,
+        new AuthenticationProperties
+        {
+            IsPersistent = false,
+            IssuedUtc = DateTimeOffset.UtcNow
+        });
 
     logger.LogInformation("User logged in: {Email}", user.Email);
 
@@ -176,6 +200,9 @@ public async Task<LoginResponse> LoginAsync(LoginRequest request, HttpContext ht
 **Security notes:**
 - On login failure, use "이메일 또는 비밀번호가 올바르지 않습니다." — never reveal which field was wrong (prevents enumeration attacks)
 - BCrypt Verify uses timing-safe comparison
+- Login/authentication must not store authenticated identity in `ISession`
+- Use ASP.NET Core cookie authentication and `SignInAsync` to issue a fresh authentication cookie after password validation
+- Read the authenticated user from `HttpContext.User` claims in authenticated requests
 
 ---
 
@@ -184,8 +211,7 @@ public async Task<LoginResponse> LoginAsync(LoginRequest request, HttpContext ht
 ```csharp
 public async Task LogoutAsync(HttpContext httpContext)
 {
-    httpContext.Session.Clear();
-    await Task.CompletedTask;
+    await httpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
 }
 ```
 
@@ -220,7 +246,7 @@ public class GmailEmailSender(IConfiguration configuration, ILogger<GmailEmailSe
     {
         var gmailAddress = configuration["Gmail:Address"]
             ?? throw new InvalidOperationException("Gmail address is not configured.");
-        var appPassword = configuration["Gmail:AppPassword"]
+        var gmailCredential = configuration["Gmail:AppPassword"]
             ?? throw new InvalidOperationException("Gmail app password is not configured.");
 
         var message = new MimeMessage();
@@ -231,7 +257,7 @@ public class GmailEmailSender(IConfiguration configuration, ILogger<GmailEmailSe
 
         using var client = new SmtpClient();
         await client.ConnectAsync("smtp.gmail.com", 587, SecureSocketOptions.StartTls);
-        await client.AuthenticateAsync(gmailAddress, appPassword);
+        await client.AuthenticateAsync(gmailAddress, gmailCredential);
         await client.SendAsync(message);
         await client.DisconnectAsync(true);
 
@@ -242,7 +268,30 @@ public class GmailEmailSender(IConfiguration configuration, ILogger<GmailEmailSe
 
 ---
 
-## Session Security Configuration (Program.cs)
+## Cookie Authentication Configuration (Program.cs)
+
+```csharp
+builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+    .AddCookie(options =>
+    {
+        options.Cookie.Name = ".Wildlife.Auth";
+        options.Cookie.HttpOnly = true;       // Block JS access to auth cookie (XSS prevention)
+        options.Cookie.IsEssential = true;
+        options.Cookie.SecurePolicy = CookieSecurePolicy.Always;  // HTTPS only
+        options.Cookie.SameSite = SameSiteMode.Strict;            // CSRF prevention
+        options.SlidingExpiration = true;
+        options.ExpireTimeSpan = TimeSpan.FromMinutes(30);
+    });
+
+builder.Services.AddAuthorization();
+
+app.UseAuthentication();
+app.UseAuthorization();
+```
+
+Do not use `ISession` as the login/authentication store. Keep server-side session state out of login and authenticated identity flows; use authentication cookies and claims instead.
+
+## Optional Session Configuration (Non-auth app state only)
 
 ```csharp
 builder.Services.AddSession(options =>
@@ -254,6 +303,8 @@ builder.Services.AddSession(options =>
     options.Cookie.SameSite = SameSiteMode.Strict;            // CSRF prevention
 });
 ```
+
+Use `ISession` only for non-authentication application state when it is genuinely needed.
 
 ---
 
