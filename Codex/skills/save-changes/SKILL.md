@@ -67,7 +67,7 @@ Do not include scope in the commit title. Include the domain or meaningful proje
 
 Description must be Korean and must not end with a period.
 
-If a related issue exists, put the issue reference on the first body line as `#<이슈번호>` with no space, for example `#123`. If the issue number is unknown, ask the user before committing. If there is no related issue, omit the body issue line instead of committing a placeholder.
+If the branch already has a pull request, put the PR number on the first body line as `#<PR번호>` with no space, for example `#123`. If no pull request exists but a related issue exists, put the issue reference on the first body line as `#<이슈번호>`. If the PR or issue number is unknown, find it from GitHub context or ask the user before committing. Do not omit the body issue line when a PR or related issue exists.
 
 Examples:
 
