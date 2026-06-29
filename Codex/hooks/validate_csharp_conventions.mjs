@@ -25,6 +25,12 @@ function addWarning(sourcePath, message) {
   warnings.push(`  - ${sourcePath}: ${message}`);
 }
 
+function isRepositoryImplementation(content, sourcePath) {
+  return /(^|[\\/])Repositories[\\/]/i.test(sourcePath)
+    || /\bclass\s+[A-Za-z_][A-Za-z0-9_]*Repository\b/.test(content)
+    || /\bclass\s+[A-Za-z_][A-Za-z0-9_]*[^{\r\n]*:\s*[^{\r\n]*\bI[A-Za-z0-9_]*Repository\b/.test(content);
+}
+
 function scanContent(content, sourcePath) {
   if (/\basync\s+void\b/.test(content)) {
     addError(sourcePath, "async void detected - use async Task instead");
@@ -38,8 +44,9 @@ function scanContent(content, sourcePath) {
     addError(sourcePath, "AppException message contains dynamic data - use static Korean message only");
   }
 
-  if (/(private|readonly)\s+[A-Za-z0-9_]*DbContext[A-Za-z0-9_]*\s+_[A-Za-z0-9_]+/.test(content)) {
-    addWarning(sourcePath, "DbContext injected directly - inject a Service instead");
+  if (!isRepositoryImplementation(content, sourcePath)
+    && /(private|readonly)\s+[A-Za-z0-9_]*DbContext[A-Za-z0-9_]*\s+_[A-Za-z0-9_]+/.test(content)) {
+    addWarning(sourcePath, "DbContext injected directly outside Repository - inject a Service or Repository instead");
   }
 
   const asyncMethodPattern = /\bpublic\s+async\s+Task(?:<[^>\r\n]+>)?\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/g;
