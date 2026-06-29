@@ -1,0 +1,4 @@
+interface:
+  display_name: "Save Changes"
+  short_description: "Review and commit project changes safely."
+  default_prompt: "Use $save-changes to review current changes and commit them with the project convention."
