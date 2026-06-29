@@ -12,8 +12,8 @@ Detailed guide for registration / login security, BCrypt, session management, an
 ## Email Verification Flow
 
 ```
-1. POST /api/auth/send-code   → generate 6-digit code → save to DB (5-min expiry) → send via Gmail
-2. POST /api/auth/verify-code → validate code → throw AppException on expiry/mismatch → mark as verified
+1. POST /api/auth/send-code   → generate 6-digit code → save hash to DB (5-min expiry) → send raw code via Gmail
+2. POST /api/auth/verify-code → find latest code by email → compare submitted code with hash → throw AppException on expiry/mismatch → mark as verified
 3. POST /api/auth/register    → confirm email verified → BCrypt hash password → save user
 ```
 
@@ -26,7 +26,7 @@ public class EmailVerificationCode
 {
     public int Id { get; set; }
     public string Email { get; set; } = null!;
-    public string Code { get; set; } = null!;
+    public string CodeHash { get; set; } = null!;
     public DateTime ExpiresAt { get; set; }
     public bool IsVerified { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
@@ -64,22 +64,26 @@ public async Task SendVerificationEmailAsync(string email)
 
     // 2. Generate 6-digit code
     var code = GenerateVerificationCode();
+    var codeHash = HashVerificationCode(code);
 
-    // 3. Save to DB (5-minute expiry)
+    // 3. Save hashed code to DB (5-minute expiry)
     var verificationCode = new EmailVerificationCode
     {
         Email = email,
-        Code = code,
+        CodeHash = codeHash,
         ExpiresAt = DateTime.UtcNow.AddMinutes(5),
         IsVerified = false
     };
     await emailCodeRepository.SaveAsync(verificationCode);
 
-    // 4. Send email
+    // 4. Send raw code by email only. Never persist or log the raw code.
     await emailSender.SendAsync(email, "Wildlife Survival 이메일 인증", BuildEmailBody(code));
 
     logger.LogInformation("Sent verification code to {Email}", email);
 }
+
+private static string HashVerificationCode(string code)
+    => BCrypt.Net.BCrypt.HashPassword(code);
 
 private static string GenerateVerificationCode()
 {
@@ -99,19 +103,26 @@ private static string GenerateVerificationCode()
 ```csharp
 public async Task VerifyEmailCodeAsync(string email, string code)
 {
+    // Lookup by email only. The submitted raw code is verified against the stored hash.
     var record = await emailCodeRepository.FindLatestByEmailAsync(email)
         ?? throw new AppException("인증 코드를 찾을 수 없습니다.", StatusCodes.Status404NotFound);
 
     if (record.ExpiresAt < DateTime.UtcNow)
         throw new AppException("인증 코드가 만료되었습니다.", StatusCodes.Status400BadRequest);
 
-    if (record.Code != code)
+    if (!BCrypt.Net.BCrypt.Verify(code, record.CodeHash))
         throw new AppException("인증 코드가 올바르지 않습니다.", StatusCodes.Status400BadRequest);
 
     record.IsVerified = true;
     await emailCodeRepository.UpdateAsync(record);
 }
 ```
+
+**Security notes:**
+- Store only `CodeHash` in the database; never store the raw email verification code.
+- Use the raw code only for the outgoing email body and the user's verification request.
+- Look up the latest pending record by email, then compare the submitted raw code with `CodeHash` using `BCrypt.Verify`.
+- Do not log verification codes or include them in exception messages.
 
 ---
 
