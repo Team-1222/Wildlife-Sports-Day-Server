@@ -88,11 +88,11 @@ private static string HashVerificationCode(string code)
 private static string GenerateVerificationCode()
 {
     int code = Random.Shared.Next(100000, 1000000);     
-    while(code % 111111 == 0)//연속된 6자리 숫자는 제외
+    while(code % 111111 == 0)//동일한 6자리 숫자는 제외
     {
         code = Random.Shared.Next(100000, 1000000);
     }
-    return code.ToString()
+    return code.ToString();
 }
 ```
 
