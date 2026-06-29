@@ -16,22 +16,22 @@ Security vulnerability checklist covering hardcoded secrets, SQL Injection, sess
 ```csharp
 // ❌ Never allowed — hardcoded in appsettings.json or code
 "ConnectionStrings": {
-  "DefaultConnection": "Host=localhost;Password=mypassword123"
+  "DefaultConnection": "Host=localhost;Password=<password>"
 }
 
 // ❌ Never allowed — written directly in code
-var password = "smtp_password_here";
+var password = "changeme";
 ```
 
 ### Correct Approach
 
 ```bash
 # Development: User Secrets
-dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=...;Password=..."
+dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=...;Password=<password>"
 dotnet user-secrets set "Gmail:AppPassword" "app-password"
 
 # Production: environment variables
-export ConnectionStrings__DefaultConnection="Host=...;Password=..."
+export ConnectionStrings__DefaultConnection="Host=...;Password=<password>"
 export Gmail__AppPassword="app-password"
 ```
 
@@ -41,8 +41,13 @@ export Gmail__AppPassword="app-password"
 # User Secrets (just in case)
 secrets.json
 
-# Development config (may contain sensitive data)
-appsettings.Development.json
+# Local override config files that may contain sensitive values
+appsettings.Local.json
+appsettings.*.Local.json
+
+# Do not blanket-ignore appsettings.Development.json.
+# Keep safe development defaults trackable; put secrets in User Secrets,
+# environment variables, or explicitly ignored local override files.
 
 # Environment variable files
 .env
@@ -83,7 +88,7 @@ var user = await dbContext.Users
 
 ```csharp
 // ❌ Forbidden — plaintext storage
-user.Password = request.Password;
+user.PlainTextPassword = request.Password;
 
 // ❌ Forbidden — MD5/SHA1 (vulnerable)
 user.PasswordHash = MD5.HashData(Encoding.UTF8.GetBytes(request.Password));
@@ -194,7 +199,7 @@ app.Use(async (context, next) =>
 ### 🔑 Secret Management
 ✅ No sensitive information in appsettings.json
 ✅ User Secrets usage confirmed
-❌ appsettings.Development.json missing from .gitignore
+❌ Local override config containing secrets is not covered by .gitignore
 
 ### 💉 SQL Injection
 ✅ No Raw SQL, using EF Core LINQ
@@ -209,5 +214,5 @@ app.Use(async (context, next) =>
 ❌ SameSite=Strict not set
 
 ---
-**Summary**: .gitignore update, session regeneration, and SameSite configuration are required.
+**Summary**: .gitignore local override coverage, fresh sign-in/session reissue flow, and SameSite configuration are required.
 ```
