@@ -44,7 +44,7 @@ Typical triggers:
 - [Finding 2]
 
 **출처**:
-- [Source name](URL) — 확인일: YYYY-MM-DD
+- 【1†Source name】 — 확인일: YYYY-MM-DD
 
 **프로젝트에 대한 시사점**: [How this applies to Wildlife Survival, if relevant — e.g. "현재 사용 중인 X 버전 업그레이드 고려 필요" or "현재 설정에 영향 없음"]
 ```
