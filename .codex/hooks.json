@@ -10,6 +10,13 @@
             "commandWindows": "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"node (Join-Path (git rev-parse --show-toplevel) 'Codex/hooks/block_dangerous_commands.mjs')\"",
             "timeout": 10,
             "statusMessage": "Checking shell command"
+          },
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/Codex/hooks/guard_commit_scope.mjs\"",
+            "commandWindows": "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"node (Join-Path (git rev-parse --show-toplevel) 'Codex/hooks/guard_commit_scope.mjs')\"",
+            "timeout": 10,
+            "statusMessage": "Checking commit scope"
           }
         ]
       },
