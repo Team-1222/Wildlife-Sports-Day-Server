@@ -33,7 +33,7 @@ public class AuthService(
             throw new AppException("인증 코드는 1분 후에 재발송할 수 있습니다.", StatusCodes.Status429TooManyRequests);
         }
 
-        await emailVerificationCodeRepository.InvalidateAllByEmailAsync(normalizedEmail);
+        await emailVerificationCodeRepository.RevokeUsableByEmailAsync(normalizedEmail);
 
         var rawCode = GenerateVerificationCode();
         var verificationCode = new EmailVerificationCode
@@ -53,8 +53,8 @@ public class AuthService(
         }
         catch (Exception exception)
         {
-            verificationCode.IsUsed = true;
-            verificationCode.UsedAt = DateTime.UtcNow;
+            verificationCode.Status = EmailVerificationCodeStatus.SendFailed;
+            verificationCode.UnavailableAt = DateTime.UtcNow;
             await emailVerificationCodeRepository.UpdateAsync(verificationCode);
             logger.LogError(
                 "Failed to send verification email for verification code {EmailVerificationCodeId} with exception type {ExceptionType}",
@@ -81,26 +81,26 @@ public class AuthService(
 
         if (verificationCode.AttemptCount >= MaxVerificationAttempts)
         {
-            verificationCode.IsUsed = true;
-            verificationCode.UsedAt ??= DateTime.UtcNow;
+            verificationCode.Status = EmailVerificationCodeStatus.AttemptLimitExceeded;
+            verificationCode.UnavailableAt ??= DateTime.UtcNow;
             await emailVerificationCodeRepository.UpdateAsync(verificationCode);
             throw new AppException("인증 코드 시도 횟수를 초과했습니다.", StatusCodes.Status429TooManyRequests);
         }
 
-        if (verificationCode.IsUsed)
-        {
-            throw new AppException("인증 코드를 찾을 수 없습니다.", StatusCodes.Status404NotFound);
-        }
-
-        if (verificationCode.IsVerified)
+        if (verificationCode.Status is EmailVerificationCodeStatus.Verified)
         {
             throw new AppException("이미 인증된 코드입니다.", StatusCodes.Status400BadRequest);
         }
 
+        if (verificationCode.Status is not EmailVerificationCodeStatus.Pending)
+        {
+            throw new AppException("인증 코드를 찾을 수 없습니다.", StatusCodes.Status404NotFound);
+        }
+
         if (verificationCode.ExpiresAt < DateTime.UtcNow)
         {
-            verificationCode.IsUsed = true;
-            verificationCode.UsedAt = DateTime.UtcNow;
+            verificationCode.Status = EmailVerificationCodeStatus.Expired;
+            verificationCode.UnavailableAt = DateTime.UtcNow;
             await emailVerificationCodeRepository.UpdateAsync(verificationCode);
             throw new AppException("인증 코드가 만료되었습니다.", StatusCodes.Status400BadRequest);
         }
@@ -110,13 +110,13 @@ public class AuthService(
             verificationCode.AttemptCount++;
             if (verificationCode.AttemptCount >= MaxVerificationAttempts)
             {
-                verificationCode.IsUsed = true;
-                verificationCode.UsedAt = DateTime.UtcNow;
+                verificationCode.Status = EmailVerificationCodeStatus.AttemptLimitExceeded;
+                verificationCode.UnavailableAt = DateTime.UtcNow;
             }
 
             await emailVerificationCodeRepository.UpdateAsync(verificationCode);
 
-            if (verificationCode.IsUsed)
+            if (verificationCode.Status is EmailVerificationCodeStatus.AttemptLimitExceeded)
             {
                 throw new AppException("인증 코드 시도 횟수를 초과했습니다.", StatusCodes.Status429TooManyRequests);
             }
@@ -124,7 +124,7 @@ public class AuthService(
             throw new AppException("인증 코드가 올바르지 않습니다.", StatusCodes.Status400BadRequest);
         }
 
-        verificationCode.IsVerified = true;
+        verificationCode.Status = EmailVerificationCodeStatus.Verified;
         verificationCode.VerifiedAt = DateTime.UtcNow;
         await emailVerificationCodeRepository.UpdateAsync(verificationCode);
 
@@ -150,13 +150,16 @@ public class AuthService(
         }
 
         var verificationCode = await emailVerificationCodeRepository.FindLatestByEmailAsync(normalizedEmail);
-        if (verificationCode is null || !verificationCode.IsVerified || verificationCode.IsUsed)
+        if (verificationCode is null || verificationCode.Status is not EmailVerificationCodeStatus.Verified)
         {
             throw new AppException("이메일 인증이 완료되지 않았습니다.", StatusCodes.Status400BadRequest);
         }
 
         if (verificationCode.ExpiresAt < DateTime.UtcNow)
         {
+            verificationCode.Status = EmailVerificationCodeStatus.Expired;
+            verificationCode.UnavailableAt = DateTime.UtcNow;
+            await emailVerificationCodeRepository.UpdateAsync(verificationCode);
             throw new AppException("인증 코드가 만료되었습니다.", StatusCodes.Status400BadRequest);
         }
 
@@ -170,8 +173,8 @@ public class AuthService(
 
         var savedUser = await userRepository.SaveAsync(user);
 
-        verificationCode.IsUsed = true;
-        verificationCode.UsedAt = DateTime.UtcNow;
+        verificationCode.Status = EmailVerificationCodeStatus.Consumed;
+        verificationCode.UnavailableAt = DateTime.UtcNow;
         await emailVerificationCodeRepository.UpdateAsync(verificationCode);
 
         logger.LogInformation("Registered new user {UserId}", savedUser.Id);

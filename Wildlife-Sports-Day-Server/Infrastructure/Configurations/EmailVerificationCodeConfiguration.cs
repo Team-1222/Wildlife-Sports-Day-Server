@@ -32,14 +32,11 @@ public class EmailVerificationCodeConfiguration : IEntityTypeConfiguration<Email
             .HasDefaultValue(0)
             .IsRequired();
 
-        builder.Property(code => code.IsVerified)
-            .HasColumnName("is_verified")
-            .HasDefaultValue(false)
-            .IsRequired();
-
-        builder.Property(code => code.IsUsed)
-            .HasColumnName("is_used")
-            .HasDefaultValue(false)
+        builder.Property(code => code.Status)
+            .HasColumnName("status")
+            .HasConversion<string>()
+            .HasMaxLength(32)
+            .HasDefaultValue(EmailVerificationCodeStatus.Pending)
             .IsRequired();
 
         builder.Property(code => code.CreatedAt)
@@ -50,7 +47,7 @@ public class EmailVerificationCodeConfiguration : IEntityTypeConfiguration<Email
         builder.Property(code => code.VerifiedAt)
             .HasColumnName("verified_at");
 
-        builder.Property(code => code.UsedAt)
-            .HasColumnName("used_at");
+        builder.Property(code => code.UnavailableAt)
+            .HasColumnName("unavailable_at");
     }
 }
