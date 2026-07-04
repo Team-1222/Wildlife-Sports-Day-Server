@@ -7,5 +7,5 @@ public interface IEmailVerificationCodeRepository
     Task<EmailVerificationCode?> FindLatestByEmailAsync(string email);
     Task<EmailVerificationCode> SaveAsync(EmailVerificationCode verificationCode);
     Task UpdateAsync(EmailVerificationCode verificationCode);
-    Task InvalidateAllByEmailAsync(string email);
+    Task RevokeUsableByEmailAsync(string email);
 }

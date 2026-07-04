@@ -26,16 +26,19 @@ public class EmailVerificationCodeRepository(AppDbContext dbContext) : IEmailVer
         await dbContext.SaveChangesAsync();
     }
 
-    public async Task InvalidateAllByEmailAsync(string email)
+    public async Task RevokeUsableByEmailAsync(string email)
     {
         var codes = await dbContext.EmailVerificationCodes
-            .Where(code => code.Email == email && !code.IsUsed)
+            .Where(code => code.Email == email
+                && (code.Status == EmailVerificationCodeStatus.Pending
+                    || code.Status == EmailVerificationCodeStatus.Verified))
             .ToListAsync();
 
+        var now = DateTime.UtcNow;
         foreach (var code in codes)
         {
-            code.IsUsed = true;
-            code.UsedAt = DateTime.UtcNow;
+            code.Status = EmailVerificationCodeStatus.Revoked;
+            code.UnavailableAt = now;
         }
 
         await dbContext.SaveChangesAsync();
