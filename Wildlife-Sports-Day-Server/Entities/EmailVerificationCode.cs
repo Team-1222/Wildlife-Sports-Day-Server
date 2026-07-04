@@ -7,9 +7,8 @@ public class EmailVerificationCode
     public string CodeHash { get; set; } = null!;
     public DateTime ExpiresAt { get; set; }
     public int AttemptCount { get; set; }
-    public bool IsVerified { get; set; }
-    public bool IsUsed { get; set; }
+    public EmailVerificationCodeStatus Status { get; set; } = EmailVerificationCodeStatus.Pending;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? VerifiedAt { get; set; }
-    public DateTime? UsedAt { get; set; }
+    public DateTime? UnavailableAt { get; set; }
 }
