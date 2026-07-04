@@ -56,21 +56,17 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
                 .HasColumnType("timestamp with time zone")
                 .HasColumnName("expires_at");
 
-            builder.Property<bool>("IsUsed")
+            builder.Property<string>("Status")
+                .IsRequired()
                 .ValueGeneratedOnAdd()
-                .HasColumnType("boolean")
-                .HasColumnName("is_used")
-                .HasDefaultValue(false);
+                .HasMaxLength(32)
+                .HasColumnType("character varying(32)")
+                .HasColumnName("status")
+                .HasDefaultValue("Pending");
 
-            builder.Property<bool>("IsVerified")
-                .ValueGeneratedOnAdd()
-                .HasColumnType("boolean")
-                .HasColumnName("is_verified")
-                .HasDefaultValue(false);
-
-            builder.Property<DateTime?>("UsedAt")
+            builder.Property<DateTime?>("UnavailableAt")
                 .HasColumnType("timestamp with time zone")
-                .HasColumnName("used_at");
+                .HasColumnName("unavailable_at");
 
             builder.Property<DateTime?>("VerifiedAt")
                 .HasColumnType("timestamp with time zone")
