@@ -14,7 +14,12 @@ public class AuthController(IAuthService authService) : ControllerBase
         [FromBody] SendVerificationCodeRequest request)
     {
         var result = await authService.SendVerificationEmailAsync(request);
-        return Ok(ApiResponse<MessageResponse>.Ok(result));
+        return Ok(new ApiResponse<MessageResponse>
+        {
+            Success = true,
+            Message = result.Message,
+            Data = result
+        });
     }
 
     [HttpPost("Email-Code/Verify")]
@@ -22,13 +27,23 @@ public class AuthController(IAuthService authService) : ControllerBase
         [FromBody] VerifyEmailCodeRequest request)
     {
         var result = await authService.VerifyEmailCodeAsync(request);
-        return Ok(ApiResponse<MessageResponse>.Ok(result));
+        return Ok(new ApiResponse<MessageResponse>
+        {
+            Success = true,
+            Message = result.Message,
+            Data = result
+        });
     }
 
     [HttpPost("Register")]
     public async Task<ActionResult<ApiResponse<RegisterResponse>>> Register([FromBody] RegisterRequest request)
     {
         var result = await authService.RegisterAsync(request);
-        return Ok(ApiResponse<RegisterResponse>.Ok(result));
+        return Ok(new ApiResponse<RegisterResponse>
+        {
+            Success = true,
+            Message = "회원가입이 완료되었습니다.",
+            Data = result
+        });
     }
 }

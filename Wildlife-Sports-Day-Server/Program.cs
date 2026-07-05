@@ -20,7 +20,12 @@ builder.Services.Configure<ApiBehaviorOptions>(options =>
             .Select(error => error.ErrorMessage)
             .FirstOrDefault() ?? "요청 값이 올바르지 않습니다.";
 
-        return new BadRequestObjectResult(ApiResponse<object>.Fail(message));
+        return new BadRequestObjectResult(new ApiResponse<object>
+        {
+            Success = false,
+            Message = message,
+            Code = "VALIDATION_ERROR"
+        });
     };
 });
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi

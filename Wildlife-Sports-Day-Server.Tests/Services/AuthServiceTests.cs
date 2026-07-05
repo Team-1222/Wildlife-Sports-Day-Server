@@ -332,9 +332,11 @@ public class AuthServiceTests
 
         var response = await service.RegisterAsync(CreateRegisterRequest());
 
-        Assert.Equal(7, response.Id);
+        Assert.Equal("7", response.UserId);
         Assert.Equal("user@example.com", response.Email);
-        Assert.Equal("nickname", response.Nickname);
+        Assert.Equal("nickname", response.UserName);
+        Assert.Equal("Player", response.Role);
+        Assert.NotEqual(default, response.CreatedAtUtc);
         Assert.NotNull(savedUser);
         Assert.NotEqual(CreateValidCredential(), savedUser.PasswordHash);
         Assert.True(BCrypt.Net.BCrypt.Verify(CreateValidCredential(), savedUser.PasswordHash));

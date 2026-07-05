@@ -30,7 +30,12 @@ public class ExceptionMiddleware(RequestDelegate next, ILogger<ExceptionMiddlewa
     {
         context.Response.StatusCode = statusCode;
         context.Response.ContentType = "application/json";
-        var response = ApiResponse<object>.Fail(message);
+        var response = new ApiResponse<object>
+        {
+            Success = false,
+            Message = message,
+            Code = "ERROR"
+        };
         await context.Response.WriteAsJsonAsync(response);
     }
 }

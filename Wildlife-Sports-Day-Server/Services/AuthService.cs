@@ -17,6 +17,7 @@ public class AuthService(
     private const int VerificationCodeMinutes = 5;
     private const int ResendCooldownSeconds = 60;
     private const int MaxVerificationAttempts = 5;
+    private const string DefaultUserRole = "Player";
 
     public async Task<MessageResponse> SendVerificationEmailAsync(SendVerificationCodeRequest request)
     {
@@ -67,7 +68,7 @@ public class AuthService(
             "Sent verification email for verification code {EmailVerificationCodeId}",
             verificationCode.Id);
 
-        return new MessageResponse("인증 코드가 발송되었습니다.");
+        return new MessageResponse { Message = "인증 코드가 발송되었습니다." };
     }
 
     public async Task<MessageResponse> VerifyEmailCodeAsync(VerifyEmailCodeRequest request)
@@ -132,7 +133,7 @@ public class AuthService(
             "Verified email code {EmailVerificationCodeId}",
             verificationCode.Id);
 
-        return new MessageResponse("이메일 인증이 완료되었습니다.");
+        return new MessageResponse { Message = "이메일 인증이 완료되었습니다." };
     }
 
     public async Task<RegisterResponse> RegisterAsync(RegisterRequest request)
@@ -179,7 +180,14 @@ public class AuthService(
 
         logger.LogInformation("Registered new user {UserId}", savedUser.Id);
 
-        return new RegisterResponse(savedUser.Id, savedUser.Email, savedUser.Nickname);
+        return new RegisterResponse
+        {
+            UserId = savedUser.Id.ToString(),
+            UserName = savedUser.Nickname,
+            Email = savedUser.Email,
+            Role = DefaultUserRole,
+            CreatedAtUtc = savedUser.CreatedAt
+        };
     }
 
     private static string NormalizeEmail(string email) =>
