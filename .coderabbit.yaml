@@ -1,1 +1,9 @@
 language: "ko-KR"
+reviews:
+  profile: "chill" # 엄격함("strict") 또는 완화("chill") 선택
+  high_level_summary: true # PR 요약
+  auto_review:
+    enabled: true # 자동 리뷰 활성화
+    drafts: false # Draft PR은 리뷰 제외
+chat:
+  auto_reply: true # 챗봇 자동 응답
