@@ -185,8 +185,8 @@ public class AuthService(
 
         return new RegisterResponse
         {
-            UserId = savedUser.Id.ToString(),
-            UserName = savedUser.Nickname,
+            UserId = savedUser.Id,
+            Username = savedUser.Nickname,
             Email = savedUser.Email,
             Role = DefaultUserRole,
             CreatedAtUtc = savedUser.CreatedAt

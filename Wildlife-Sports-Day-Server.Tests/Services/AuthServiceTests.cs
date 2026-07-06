@@ -333,9 +333,9 @@ public class AuthServiceTests
 
         var response = await service.RegisterAsync(CreateRegisterRequest());
 
-        Assert.Equal("7", response.UserId);
+        Assert.Equal(7, response.UserId);
         Assert.Equal("user@example.com", response.Email);
-        Assert.Equal("nickname", response.UserName);
+        Assert.Equal("nickname", response.Username);
         Assert.Equal("Player", response.Role);
         Assert.NotEqual(default, response.CreatedAtUtc);
         Assert.NotNull(savedUser);
