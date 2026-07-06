@@ -1,6 +1,6 @@
 @Wildlife_Sports_Day_Server_HostAddress = http://localhost:5233
 
-POST {{Wildlife_Sports_Day_Server_HostAddress}}/Auth/Email-Code/Send
+POST {{Wildlife_Sports_Day_Server_HostAddress}}/api/auth/email-code/send
 Content-Type: application/json
 
 {
@@ -9,7 +9,7 @@ Content-Type: application/json
 
 ###
 
-POST {{Wildlife_Sports_Day_Server_HostAddress}}/Auth/Email-Code/Verify
+POST {{Wildlife_Sports_Day_Server_HostAddress}}/api/auth/email-code/verify
 Content-Type: application/json
 
 {
