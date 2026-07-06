@@ -6,11 +6,11 @@ using Wildlife_Sports_Day_Server.Services;
 namespace Wildlife_Sports_Day_Server.Controllers;
 
 [ApiController]
-[Route("Auth")]
+[Route("api/auth")]
 public class AuthController(IAuthService authService) : ControllerBase
 {
-    [HttpPost("Email-Code/Send")]
-    public async Task<ActionResult<ApiResponse<MessageResponse>>> SendVerificationCode(
+    [HttpPost("email-code/send")]
+    public async Task<ActionResult<ApiResponse<MessageResponse>>> SendVerificationCodeAsync(
         [FromBody] SendVerificationCodeRequest request)
     {
         var result = await authService.SendVerificationEmailAsync(request);
@@ -22,8 +22,8 @@ public class AuthController(IAuthService authService) : ControllerBase
         });
     }
 
-    [HttpPost("Email-Code/Verify")]
-    public async Task<ActionResult<ApiResponse<MessageResponse>>> VerifyEmailCode(
+    [HttpPost("email-code/verify")]
+    public async Task<ActionResult<ApiResponse<MessageResponse>>> VerifyEmailCodeAsync(
         [FromBody] VerifyEmailCodeRequest request)
     {
         var result = await authService.VerifyEmailCodeAsync(request);
@@ -35,8 +35,8 @@ public class AuthController(IAuthService authService) : ControllerBase
         });
     }
 
-    [HttpPost("Register")]
-    public async Task<ActionResult<ApiResponse<RegisterResponse>>> Register([FromBody] RegisterRequest request)
+    [HttpPost("register")]
+    public async Task<ActionResult<ApiResponse<RegisterResponse>>> RegisterAsync([FromBody] RegisterRequest request)
     {
         var result = await authService.RegisterAsync(request);
         return Ok(new ApiResponse<RegisterResponse>
