@@ -15,6 +15,7 @@ public class AuthService(
     ILogger<AuthService> logger) : IAuthService
 {
     private const int VerificationCodeMinutes = 5;
+    private const int VerifiedSignupMinutes = 5;
     private const int ResendCooldownSeconds = 60;
     private const int MaxVerificationAttempts = 5;
     private const string DefaultUserRole = "Player";
@@ -156,10 +157,12 @@ public class AuthService(
             throw new AppException("이메일 인증이 완료되지 않았습니다.", StatusCodes.Status400BadRequest);
         }
 
-        if (verificationCode.ExpiresAt < DateTime.UtcNow)
+        var now = DateTime.UtcNow;
+        if (verificationCode.VerifiedAt is null
+            || verificationCode.VerifiedAt.Value.AddMinutes(VerifiedSignupMinutes) < now)
         {
             verificationCode.Status = EmailVerificationCodeStatus.Expired;
-            verificationCode.UnavailableAt = DateTime.UtcNow;
+            verificationCode.UnavailableAt = now;
             await emailVerificationCodeRepository.UpdateAsync(verificationCode);
             throw new AppException("인증 코드가 만료되었습니다.", StatusCodes.Status400BadRequest);
         }

@@ -313,8 +313,9 @@ public class AuthServiceTests
         var userRepository = new Mock<IUserRepository>();
         var codeRepository = new Mock<IEmailVerificationCodeRepository>();
         var emailSender = new Mock<IEmailSender>();
-        var verificationCode = CreatePendingCode("123456", DateTime.UtcNow.AddMinutes(5));
+        var verificationCode = CreatePendingCode("123456", DateTime.UtcNow.AddMinutes(-1));
         verificationCode.Status = EmailVerificationCodeStatus.Verified;
+        verificationCode.VerifiedAt = DateTime.UtcNow;
         User? savedUser = null;
 
         userRepository.Setup(repository => repository.ExistsByEmailAsync("user@example.com")).ReturnsAsync(false);
@@ -346,13 +347,14 @@ public class AuthServiceTests
     }
 
     [Fact]
-    public async Task RegisterAsync_ExpiredVerifiedEmail_MarksCodeExpiredAndThrowsBadRequest()
+    public async Task RegisterAsync_ExpiredVerifiedSignupWindow_MarksCodeExpiredAndThrowsBadRequest()
     {
         var userRepository = new Mock<IUserRepository>();
         var codeRepository = new Mock<IEmailVerificationCodeRepository>();
         var emailSender = new Mock<IEmailSender>();
-        var verificationCode = CreatePendingCode("123456", DateTime.UtcNow.AddMinutes(-1));
+        var verificationCode = CreatePendingCode("123456", DateTime.UtcNow.AddMinutes(5));
         verificationCode.Status = EmailVerificationCodeStatus.Verified;
+        verificationCode.VerifiedAt = DateTime.UtcNow.AddMinutes(-6);
 
         userRepository.Setup(repository => repository.ExistsByEmailAsync("user@example.com")).ReturnsAsync(false);
         codeRepository.Setup(repository => repository.FindLatestByEmailAsync("user@example.com")).ReturnsAsync(verificationCode);
