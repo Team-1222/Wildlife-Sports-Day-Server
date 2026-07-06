@@ -66,7 +66,7 @@ function scanContent(content, sourcePath) {
   addPatternViolations(
     content,
     sourcePath,
-    /\b([a-z]{4}\s[a-z]{4}\s[a-z]{4}\s[a-z]{4})\b/gi,
+    /(?<![A-Za-z0-9_])["']?(?:Gmail[:_]{1,2})?(?:AppPassword|GmailAppPassword|SmtpPassword)["']?\s*(?:[:=]|\s)\s*["']?([a-z]{4}\s[a-z]{4}\s[a-z]{4}\s[a-z]{4})["']?/gi,
     1,
     "possible Gmail app password"
   );

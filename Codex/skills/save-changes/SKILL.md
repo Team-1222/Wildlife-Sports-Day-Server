@@ -23,12 +23,18 @@ Use this skill to turn local worktree changes into an intentional Git commit and
    - action: stage / leave unstaged / ask user
    - verification needed: build / test / syntax check / docs-only
 4. Update the per-file summary whenever another file changes before committing. Do not wait until the final response to sort the file list.
-5. Separate changes into commit units by domain or purpose.
+5. Separate changes into commit units by domain or purpose before staging.
+   - Do not make a single "all changes" commit when changes can be split by feature, layer, migration, tests, docs, hooks, or Codex workflow.
+   - Stage and commit one logical unit at a time, then re-run `git status --short` before staging the next unit.
+   - If a staged diff contains app code, migrations, tests, and Codex workflow changes together, stop and split it.
+   - Tests may be committed with the feature only when they directly verify that same feature; otherwise use a separate `test:` commit.
 6. Do not stage unrelated files, generated caches, IDE metadata, local secrets, or changes the current agent did not make unless the user explicitly asks.
 7. If unrelated existing changes are present, mention them and leave them unstaged.
 8. Run the narrowest useful verification before committing. Prefer `dotnet build` for backend code changes; skip only when the change is documentation or hook-only and explain that choice.
-9. Stage only the selected files with explicit paths.
-10. Recheck `git diff --cached` and `git status --short`.
+9. Stage only the selected files with explicit paths. Never use broad staging such as `git add .`, `git add -A`, or `git add --all` for a feature commit unless every changed file has already been classified into the same logical unit.
+10. Recheck `git diff --cached --stat`, `git diff --cached --name-only`, and `git status --short`.
+    - Confirm that the staged file list contains exactly one commit unit.
+    - If more than one unit is staged, unstage and split before committing.
 11. Commit with the repository convention.
 12. Report the commit hash, message, verification result, per-file summary, and any remaining unstaged changes.
 13. Do not push or open a PR unless the user explicitly asks.
@@ -93,7 +99,14 @@ docs: 변경사항 저장 스킬 갱신
 ## Commit Rules
 
 - One commit should represent one logical change.
-- Do not mix feature, refactor, formatting, migration, and test-only changes unless they are inseparable.
+- Do not mix feature, refactor, formatting, migration, test-only, docs, hook, or Codex workflow changes unless they are inseparable.
+- Do not combine a whole branch's work into one commit for convenience. If the commit summary would need "and", "also", "전체", "모두", or multiple unrelated bullets, split it.
+- Prefer these split points:
+  - DB model + FluentAPI + migration in one `feat:` commit.
+  - API/service/repository behavior in a separate `feat:` or `fix:` commit.
+  - Tests in a `test:` commit unless they are tightly coupled to a small implementation commit.
+  - Package/build configuration in a `chore:` commit when it is not inseparable from the feature.
+  - Codex skill/hook/policy changes in a separate `docs:` or `chore:` commit.
 - Split commits by functional unit even when all changes are under `Codex/`.
 - For Codex resource changes, prefer separate commits for each meaningful area:
   - One commit per skill type or skill folder, such as `backup-guide`, `migration-guide`, or `save-changes`.

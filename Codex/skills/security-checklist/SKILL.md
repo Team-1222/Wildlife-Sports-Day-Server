@@ -139,13 +139,13 @@ public async Task<LoginResponse> LoginAsync(LoginRequest request, HttpContext ht
 // ❌ Forbidden — predictable code
 var code = (DateTime.Now.Millisecond % 900000 + 100000).ToString();
 
-// ✅ Cryptographically random (most secure)
-var bytes = new byte[4];
-RandomNumberGenerator.Fill(bytes);
-var code = (Math.Abs(BitConverter.ToInt32(bytes)) % 900000 + 100000).ToString();
-
-// ✅ Simple approach (sufficiently secure)
-var code = Random.Shared.Next(100000, 999999).ToString();
+// ✅ Required — cryptographically secure 6-digit code
+var numericCode = RandomNumberGenerator.GetInt32(100000, 1000000);
+while (numericCode % 111111 == 0)
+{
+    numericCode = RandomNumberGenerator.GetInt32(100000, 1000000);
+}
+var code = numericCode.ToString();
 ```
 
 ### Rate Limiting for Code Resend
