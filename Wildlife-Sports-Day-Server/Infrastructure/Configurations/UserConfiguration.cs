@@ -23,6 +23,7 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
             .HasColumnName("nickname")
             .HasMaxLength(20)
             .IsRequired();
+        builder.HasIndex(user => user.Nickname).IsUnique();
 
         builder.Property(user => user.PasswordHash)
             .HasColumnName("password_hash")

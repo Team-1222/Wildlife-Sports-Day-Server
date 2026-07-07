@@ -116,6 +116,9 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
             builder.HasIndex("Email")
                 .IsUnique();
 
+            builder.HasIndex("Nickname")
+                .IsUnique();
+
             builder.ToTable("users", (string)null);
         });
     }
