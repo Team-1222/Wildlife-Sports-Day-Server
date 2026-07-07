@@ -9,8 +9,14 @@ public class UserRepository(AppDbContext dbContext) : IUserRepository
     public async Task<bool> ExistsByEmailAsync(string email) =>
         await dbContext.Users.AnyAsync(user => user.Email == email);
 
+    public async Task<bool> ExistsByNicknameAsync(string nickname) =>
+        await dbContext.Users.AnyAsync(user => user.Nickname == nickname);
+
     public async Task<User?> FindByEmailAsync(string email) =>
         await dbContext.Users.FirstOrDefaultAsync(user => user.Email == email);
+
+    public async Task<User?> FindByNicknameAsync(string nickname) =>
+        await dbContext.Users.FirstOrDefaultAsync(user => user.Nickname == nickname);
 
     public async Task<User> SaveAsync(User user)
     {

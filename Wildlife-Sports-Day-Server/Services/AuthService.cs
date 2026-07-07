@@ -1,5 +1,9 @@
+using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text.Encodings.Web;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Http.Features;
 using Wildlife_Sports_Day_Server.Dtos.Requests;
 using Wildlife_Sports_Day_Server.Dtos.Responses;
 using Wildlife_Sports_Day_Server.Entities;
@@ -96,7 +100,7 @@ public class AuthService(
 
         if (verificationCode.Status is not EmailVerificationCodeStatus.Pending)
         {
-            throw new AppException("인증 코드를 찾을 수 없습니다.", StatusCodes.Status404NotFound);
+            throw new AppException("사용할 수 없는 인증 코드입니다.", StatusCodes.Status400BadRequest);
         }
 
         if (verificationCode.ExpiresAt < DateTime.UtcNow)
@@ -140,6 +144,7 @@ public class AuthService(
     public async Task<RegisterResponse> RegisterAsync(RegisterRequest request)
     {
         var normalizedEmail = NormalizeEmail(request.Email);
+        var normalizedNickname = NormalizeNickname(request.Nickname);
 
         if (request.Password != request.ConfirmPassword)
         {
@@ -149,6 +154,11 @@ public class AuthService(
         if (await userRepository.ExistsByEmailAsync(normalizedEmail))
         {
             throw new AppException("이미 사용 중인 이메일입니다.", StatusCodes.Status409Conflict);
+        }
+
+        if (await userRepository.ExistsByNicknameAsync(normalizedNickname))
+        {
+            throw new AppException("이미 사용 중인 닉네임입니다.", StatusCodes.Status409Conflict);
         }
 
         var verificationCode = await emailVerificationCodeRepository.FindLatestByEmailAsync(normalizedEmail);
@@ -170,7 +180,7 @@ public class AuthService(
         var user = new User
         {
             Email = normalizedEmail,
-            Nickname = request.Nickname,
+            Nickname = normalizedNickname,
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password),
             CreatedAt = DateTime.UtcNow
         };
@@ -193,8 +203,57 @@ public class AuthService(
         };
     }
 
+    public async Task<LoginResponse> LoginAsync(LoginRequest request, HttpContext httpContext)
+    {
+        var normalizedNickname = NormalizeNickname(request.Nickname);
+        var user = await userRepository.FindByNicknameAsync(normalizedNickname);
+        if (user is null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
+        {
+            throw new AppException("닉네임 또는 비밀번호가 올바르지 않습니다.", StatusCodes.Status401Unauthorized);
+        }
+
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.NameIdentifier, user.Id.ToString()),
+            new(ClaimTypes.Email, user.Email),
+            new(ClaimTypes.Name, user.Nickname),
+            new(ClaimTypes.Role, DefaultUserRole)
+        };
+
+        var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
+        var principal = new ClaimsPrincipal(identity);
+
+        await httpContext.SignInAsync(
+            CookieAuthenticationDefaults.AuthenticationScheme,
+            principal,
+            new AuthenticationProperties
+            {
+                IsPersistent = false,
+                IssuedUtc = DateTimeOffset.UtcNow
+            });
+
+        var guestBestScore = httpContext.Features.Get<ISessionFeature>()?.Session.GetInt32(GuestSessionKeys.BestScore);
+        if (guestBestScore is not null)
+        {
+            // TODO: 점수 저장 기능 구현 시 게스트 임시 점수를 사용자 정식 기록으로 저장합니다.
+        }
+
+        logger.LogInformation("Logged in user {UserId}", user.Id);
+
+        return new LoginResponse
+        {
+            UserId = user.Id,
+            Username = user.Nickname,
+            Email = user.Email,
+            Role = DefaultUserRole
+        };
+    }
+
     private static string NormalizeEmail(string email) =>
         email.Trim().ToLowerInvariant();
+
+    private static string NormalizeNickname(string nickname) =>
+        nickname.Trim();
 
     private static string GenerateVerificationCode()
     {

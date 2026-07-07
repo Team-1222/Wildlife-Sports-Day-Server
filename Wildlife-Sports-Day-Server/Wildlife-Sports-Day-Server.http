@@ -18,3 +18,12 @@ Content-Type: application/json
 }
 
 ###
+
+POST {{Wildlife_Sports_Day_Server_HostAddress}}/api/guest/scores
+Content-Type: application/json
+
+{
+  "score": 100
+}
+
+###

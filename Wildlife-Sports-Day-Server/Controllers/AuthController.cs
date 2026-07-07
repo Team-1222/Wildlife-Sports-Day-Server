@@ -46,4 +46,17 @@ public class AuthController(IAuthService authService) : ControllerBase
             Data = result
         });
     }
+
+    [HttpPost("login")]
+    public async Task<ActionResult<ApiResponse<LoginResponse>>> LoginAsync([FromBody] LoginRequest request)
+    {
+        var result = await authService.LoginAsync(request, HttpContext);
+        return Ok(new ApiResponse<LoginResponse>
+        {
+            Success = true,
+            Message = "로그인되었습니다.",
+            Data = result
+        });
+    }
+
 }

@@ -8,4 +8,5 @@ public interface IAuthService
     Task<MessageResponse> SendVerificationEmailAsync(SendVerificationCodeRequest request);
     Task<MessageResponse> VerifyEmailCodeAsync(VerifyEmailCodeRequest request);
     Task<RegisterResponse> RegisterAsync(RegisterRequest request);
+    Task<LoginResponse> LoginAsync(LoginRequest request, HttpContext httpContext);
 }
