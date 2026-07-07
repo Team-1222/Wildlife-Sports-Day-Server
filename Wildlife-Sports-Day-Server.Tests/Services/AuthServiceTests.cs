@@ -1,5 +1,8 @@
+using System.Security.Claims;
 using System.Text.RegularExpressions;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Wildlife_Sports_Day_Server.Dtos.Requests;
@@ -158,6 +161,74 @@ public class AuthServiceTests
     }
 
     [Fact]
+    public async Task LoginAsync_ValidCredential_SignsInUser()
+    {
+        var userRepository = new Mock<IUserRepository>();
+        var codeRepository = new Mock<IEmailVerificationCodeRepository>();
+        var emailSender = new Mock<IEmailSender>();
+        var authenticationService = new TestAuthenticationService();
+        var httpContext = CreateHttpContext(authenticationService);
+        var user = CreateUser();
+
+        userRepository.Setup(repository => repository.FindByNicknameAsync("nickname")).ReturnsAsync(user);
+
+        var service = CreateService(userRepository, codeRepository, emailSender);
+
+        var response = await service.LoginAsync(CreateLoginRequest(" nickname "), httpContext);
+
+        Assert.Equal(7, response.UserId);
+        Assert.Equal("nickname", response.Username);
+        Assert.Equal("user@example.com", response.Email);
+        Assert.Equal("Player", response.Role);
+        Assert.NotNull(authenticationService.SignedInPrincipal);
+        Assert.Equal("7", authenticationService.SignedInPrincipal.FindFirst(ClaimTypes.NameIdentifier)?.Value);
+        Assert.Equal("nickname", authenticationService.SignedInPrincipal.FindFirst(ClaimTypes.Name)?.Value);
+        userRepository.Verify(repository => repository.FindByNicknameAsync("nickname"), Times.Once);
+    }
+
+    [Fact]
+    public async Task LoginAsync_UnknownNickname_ThrowsUnauthorized()
+    {
+        var userRepository = new Mock<IUserRepository>();
+        var codeRepository = new Mock<IEmailVerificationCodeRepository>();
+        var emailSender = new Mock<IEmailSender>();
+        var authenticationService = new TestAuthenticationService();
+        var httpContext = CreateHttpContext(authenticationService);
+
+        userRepository.Setup(repository => repository.FindByNicknameAsync("unknown")).ReturnsAsync((User?)null);
+
+        var service = CreateService(userRepository, codeRepository, emailSender);
+
+        var exception = await Assert.ThrowsAsync<AppException>(() =>
+            service.LoginAsync(CreateLoginRequest("unknown"), httpContext));
+
+        Assert.Equal(StatusCodes.Status401Unauthorized, exception.StatusCode);
+        Assert.Equal("닉네임 또는 비밀번호가 올바르지 않습니다.", exception.Message);
+        Assert.Null(authenticationService.SignedInPrincipal);
+    }
+
+    [Fact]
+    public async Task LoginAsync_WrongPassword_ThrowsUnauthorized()
+    {
+        var userRepository = new Mock<IUserRepository>();
+        var codeRepository = new Mock<IEmailVerificationCodeRepository>();
+        var emailSender = new Mock<IEmailSender>();
+        var authenticationService = new TestAuthenticationService();
+        var httpContext = CreateHttpContext(authenticationService);
+
+        userRepository.Setup(repository => repository.FindByNicknameAsync("nickname")).ReturnsAsync(CreateUser());
+
+        var service = CreateService(userRepository, codeRepository, emailSender);
+
+        var exception = await Assert.ThrowsAsync<AppException>(() =>
+            service.LoginAsync(CreateLoginRequest("nickname", CreateDifferentCredential()), httpContext));
+
+        Assert.Equal(StatusCodes.Status401Unauthorized, exception.StatusCode);
+        Assert.Equal("닉네임 또는 비밀번호가 올바르지 않습니다.", exception.Message);
+        Assert.Null(authenticationService.SignedInPrincipal);
+    }
+
+    [Fact]
     public async Task VerifyEmailCodeAsync_ValidCode_MarksCodeVerified()
     {
         var userRepository = new Mock<IUserRepository>();
@@ -232,6 +303,31 @@ public class AuthServiceTests
     }
 
     [Fact]
+    public async Task VerifyEmailCodeAsync_UnavailableStatus_ThrowsBadRequest()
+    {
+        var userRepository = new Mock<IUserRepository>();
+        var codeRepository = new Mock<IEmailVerificationCodeRepository>();
+        var emailSender = new Mock<IEmailSender>();
+        var verificationCode = CreatePendingCode("123456", DateTime.UtcNow.AddMinutes(5));
+        verificationCode.Status = EmailVerificationCodeStatus.Revoked;
+
+        codeRepository.Setup(repository => repository.FindLatestByEmailAsync("user@example.com")).ReturnsAsync(verificationCode);
+
+        var service = CreateService(userRepository, codeRepository, emailSender);
+
+        var exception = await Assert.ThrowsAsync<AppException>(() =>
+            service.VerifyEmailCodeAsync(new VerifyEmailCodeRequest
+            {
+                Email = "user@example.com",
+                Code = "123456"
+            }));
+
+        Assert.Equal(StatusCodes.Status400BadRequest, exception.StatusCode);
+        Assert.Equal("사용할 수 없는 인증 코드입니다.", exception.Message);
+        codeRepository.Verify(repository => repository.UpdateAsync(verificationCode), Times.Never);
+    }
+
+    [Fact]
     public async Task VerifyEmailCodeAsync_LastAllowedMismatch_MarksCodeAttemptLimitExceededAndThrowsTooManyRequests()
     {
         var userRepository = new Mock<IUserRepository>();
@@ -294,6 +390,7 @@ public class AuthServiceTests
         var emailSender = new Mock<IEmailSender>();
 
         userRepository.Setup(repository => repository.ExistsByEmailAsync("user@example.com")).ReturnsAsync(false);
+        userRepository.Setup(repository => repository.ExistsByNicknameAsync("nickname")).ReturnsAsync(false);
         codeRepository
             .Setup(repository => repository.FindLatestByEmailAsync("user@example.com"))
             .ReturnsAsync((EmailVerificationCode?)null);
@@ -319,6 +416,7 @@ public class AuthServiceTests
         User? savedUser = null;
 
         userRepository.Setup(repository => repository.ExistsByEmailAsync("user@example.com")).ReturnsAsync(false);
+        userRepository.Setup(repository => repository.ExistsByNicknameAsync("nickname")).ReturnsAsync(false);
         userRepository
             .Setup(repository => repository.SaveAsync(It.IsAny<User>()))
             .Callback<User>(user => savedUser = user)
@@ -339,6 +437,7 @@ public class AuthServiceTests
         Assert.Equal("Player", response.Role);
         Assert.NotEqual(default, response.CreatedAtUtc);
         Assert.NotNull(savedUser);
+        Assert.Equal("nickname", savedUser.Nickname);
         Assert.NotEqual(CreateValidCredential(), savedUser.PasswordHash);
         Assert.True(BCrypt.Net.BCrypt.Verify(CreateValidCredential(), savedUser.PasswordHash));
         Assert.Equal(EmailVerificationCodeStatus.Consumed, verificationCode.Status);
@@ -357,6 +456,7 @@ public class AuthServiceTests
         verificationCode.VerifiedAt = DateTime.UtcNow.AddMinutes(-6);
 
         userRepository.Setup(repository => repository.ExistsByEmailAsync("user@example.com")).ReturnsAsync(false);
+        userRepository.Setup(repository => repository.ExistsByNicknameAsync("nickname")).ReturnsAsync(false);
         codeRepository.Setup(repository => repository.FindLatestByEmailAsync("user@example.com")).ReturnsAsync(verificationCode);
 
         var service = CreateService(userRepository, codeRepository, emailSender);
@@ -368,6 +468,26 @@ public class AuthServiceTests
         Assert.Equal(EmailVerificationCodeStatus.Expired, verificationCode.Status);
         Assert.NotNull(verificationCode.UnavailableAt);
         codeRepository.Verify(repository => repository.UpdateAsync(verificationCode), Times.Once);
+        userRepository.Verify(repository => repository.SaveAsync(It.IsAny<User>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task RegisterAsync_DuplicateNickname_ThrowsConflict()
+    {
+        var userRepository = new Mock<IUserRepository>();
+        var codeRepository = new Mock<IEmailVerificationCodeRepository>();
+        var emailSender = new Mock<IEmailSender>();
+
+        userRepository.Setup(repository => repository.ExistsByEmailAsync("user@example.com")).ReturnsAsync(false);
+        userRepository.Setup(repository => repository.ExistsByNicknameAsync("nickname")).ReturnsAsync(true);
+
+        var service = CreateService(userRepository, codeRepository, emailSender);
+
+        var exception = await Assert.ThrowsAsync<AppException>(() => service.RegisterAsync(CreateRegisterRequest()));
+
+        Assert.Equal(StatusCodes.Status409Conflict, exception.StatusCode);
+        Assert.Equal("이미 사용 중인 닉네임입니다.", exception.Message);
+        codeRepository.Verify(repository => repository.FindLatestByEmailAsync(It.IsAny<string>()), Times.Never);
         userRepository.Verify(repository => repository.SaveAsync(It.IsAny<User>()), Times.Never);
     }
 
@@ -398,6 +518,15 @@ public class AuthServiceTests
             emailSender.Object,
             NullLogger<AuthService>.Instance);
 
+    private static DefaultHttpContext CreateHttpContext(TestAuthenticationService authenticationService)
+    {
+        var services = new ServiceCollection()
+            .AddSingleton<IAuthenticationService>(authenticationService)
+            .BuildServiceProvider();
+
+        return new DefaultHttpContext { RequestServices = services };
+    }
+
     private static EmailVerificationCode CreatePendingCode(string rawCode, DateTime expiresAt) =>
         new()
         {
@@ -422,9 +551,55 @@ public class AuthServiceTests
         return request;
     }
 
+    private static LoginRequest CreateLoginRequest(string nickname, string? credential = null)
+    {
+        var request = new LoginRequest { Nickname = nickname };
+        typeof(LoginRequest)
+            .GetProperty(nameof(LoginRequest.Password))!
+            .SetValue(request, credential ?? CreateValidCredential());
+        return request;
+    }
+
     private static string CreateValidCredential() =>
         string.Concat("A", "a", "123", "456", "!");
 
     private static string CreateDifferentCredential() =>
         string.Concat("B", "b", "654", "321", "!");
+
+    private static User CreateUser() =>
+        new()
+        {
+            Id = 7,
+            Email = "user@example.com",
+            Nickname = "nickname",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(CreateValidCredential()),
+            CreatedAt = DateTime.UtcNow
+        };
+
+    private sealed class TestAuthenticationService : IAuthenticationService
+    {
+        public ClaimsPrincipal? SignedInPrincipal { get; private set; }
+
+        public Task<AuthenticateResult> AuthenticateAsync(HttpContext context, string? scheme) =>
+            Task.FromResult(AuthenticateResult.NoResult());
+
+        public Task ChallengeAsync(HttpContext context, string? scheme, AuthenticationProperties? properties) =>
+            Task.CompletedTask;
+
+        public Task ForbidAsync(HttpContext context, string? scheme, AuthenticationProperties? properties) =>
+            Task.CompletedTask;
+
+        public Task SignInAsync(
+            HttpContext context,
+            string? scheme,
+            ClaimsPrincipal principal,
+            AuthenticationProperties? properties)
+        {
+            SignedInPrincipal = principal;
+            return Task.CompletedTask;
+        }
+
+        public Task SignOutAsync(HttpContext context, string? scheme, AuthenticationProperties? properties) =>
+            Task.CompletedTask;
+    }
 }
