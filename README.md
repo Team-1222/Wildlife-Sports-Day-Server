@@ -19,3 +19,13 @@ ___
 -> Repository
 -> EF Core DbContext
 -> DB
+
+___
+# CI/CD
+
+## 현재 적용
+- GitHub Actions로 서버 빌드와 테스트를 자동 실행합니다.
+
+## 추후 추가 예정
+- 주요 기능 구현이 끝나고 배포 준비 단계에서 CD를 추가합니다.
+- 배포 대상(Render, Railway, Azure, VPS/Docker 등)을 정한 뒤 환경 변수, DB 연결, 마이그레이션 적용 방식, 롤백 절차를 함께 정리합니다.
