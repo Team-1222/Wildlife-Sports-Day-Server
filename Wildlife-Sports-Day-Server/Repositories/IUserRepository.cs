@@ -9,4 +9,5 @@ public interface IUserRepository
     Task<User?> FindByEmailAsync(string email);
     Task<User?> FindByNicknameAsync(string nickname);
     Task<User> SaveAsync(User user);
+    Task<User?> SaveIfUniqueAsync(User user);
 }

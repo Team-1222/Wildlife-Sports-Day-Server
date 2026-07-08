@@ -154,6 +154,36 @@ public class AuthServiceTests
     }
 
     [Fact]
+    public async Task SendVerificationEmailAsync_PreviousSendFailedCode_SendsEmailWithoutCooldown()
+    {
+        var userRepository = new Mock<IUserRepository>();
+        var codeRepository = new Mock<IEmailVerificationCodeRepository>();
+        var emailSender = new Mock<IEmailSender>();
+        EmailVerificationCode? savedCode = null;
+
+        userRepository.Setup(repository => repository.ExistsByEmailAsync("user@example.com")).ReturnsAsync(false);
+        codeRepository
+            .Setup(repository => repository.FindLatestActiveByEmailAsync("user@example.com"))
+            .ReturnsAsync((EmailVerificationCode?)null);
+        codeRepository
+            .Setup(repository => repository.SaveAsync(It.IsAny<EmailVerificationCode>()))
+            .Callback<EmailVerificationCode>(code => savedCode = code)
+            .ReturnsAsync((EmailVerificationCode code) => code);
+        emailSender
+            .Setup(sender => sender.SendAsync("user@example.com", It.IsAny<string>(), It.IsAny<string>()))
+            .Returns(Task.CompletedTask);
+
+        var service = CreateService(userRepository, codeRepository, emailSender);
+
+        await service.SendVerificationEmailAsync(new SendVerificationCodeRequest { Email = "user@example.com" });
+
+        Assert.NotNull(savedCode);
+        Assert.Equal(EmailVerificationCodeStatus.Pending, savedCode.Status);
+        emailSender.Verify(sender => sender.SendAsync("user@example.com", It.IsAny<string>(), It.IsAny<string>()), Times.Once);
+        codeRepository.Verify(repository => repository.RevokeActiveByEmailExceptAsync("user@example.com", savedCode.Id), Times.Once);
+    }
+
+    [Fact]
     public async Task SendVerificationEmailAsync_DuplicateEmail_ThrowsConflict()
     {
         var userRepository = new Mock<IUserRepository>();
@@ -412,7 +442,7 @@ public class AuthServiceTests
 
         Assert.Equal(StatusCodes.Status400BadRequest, exception.StatusCode);
         Assert.Equal("이메일 인증이 완료되지 않았습니다.", exception.Message);
-        userRepository.Verify(repository => repository.SaveAsync(It.IsAny<User>()), Times.Never);
+        userRepository.Verify(repository => repository.SaveIfUniqueAsync(It.IsAny<User>()), Times.Never);
     }
 
     [Fact]
@@ -429,7 +459,7 @@ public class AuthServiceTests
         userRepository.Setup(repository => repository.ExistsByEmailAsync("user@example.com")).ReturnsAsync(false);
         userRepository.Setup(repository => repository.ExistsByNicknameAsync("nickname")).ReturnsAsync(false);
         userRepository
-            .Setup(repository => repository.SaveAsync(It.IsAny<User>()))
+            .Setup(repository => repository.SaveIfUniqueAsync(It.IsAny<User>()))
             .Callback<User>(user => savedUser = user)
             .ReturnsAsync((User user) =>
             {
@@ -457,6 +487,34 @@ public class AuthServiceTests
     }
 
     [Fact]
+    public async Task RegisterAsync_DuplicateDuringSave_ThrowsConflictAndKeepsCodeVerified()
+    {
+        var userRepository = new Mock<IUserRepository>();
+        var codeRepository = new Mock<IEmailVerificationCodeRepository>();
+        var emailSender = new Mock<IEmailSender>();
+        var verificationCode = CreatePendingCode("123456", DateTime.UtcNow.AddMinutes(5));
+        verificationCode.Status = EmailVerificationCodeStatus.Verified;
+        verificationCode.VerifiedAt = DateTime.UtcNow;
+
+        userRepository.Setup(repository => repository.ExistsByEmailAsync("user@example.com")).ReturnsAsync(false);
+        userRepository.Setup(repository => repository.ExistsByNicknameAsync("nickname")).ReturnsAsync(false);
+        userRepository
+            .Setup(repository => repository.SaveIfUniqueAsync(It.IsAny<User>()))
+            .ReturnsAsync((User?)null);
+        codeRepository.Setup(repository => repository.FindLatestActiveByEmailAsync("user@example.com")).ReturnsAsync(verificationCode);
+
+        var service = CreateService(userRepository, codeRepository, emailSender);
+
+        var exception = await Assert.ThrowsAsync<AppException>(() => service.RegisterAsync(CreateRegisterRequest()));
+
+        Assert.Equal(StatusCodes.Status409Conflict, exception.StatusCode);
+        Assert.Equal("이미 사용 중인 이메일 또는 닉네임입니다.", exception.Message);
+        Assert.Equal(EmailVerificationCodeStatus.Verified, verificationCode.Status);
+        Assert.Null(verificationCode.UnavailableAt);
+        codeRepository.Verify(repository => repository.UpdateAsync(It.IsAny<EmailVerificationCode>()), Times.Never);
+    }
+
+    [Fact]
     public async Task RegisterAsync_ExpiredVerifiedSignupWindow_MarksCodeExpiredAndThrowsBadRequest()
     {
         var userRepository = new Mock<IUserRepository>();
@@ -479,7 +537,7 @@ public class AuthServiceTests
         Assert.Equal(EmailVerificationCodeStatus.Expired, verificationCode.Status);
         Assert.NotNull(verificationCode.UnavailableAt);
         codeRepository.Verify(repository => repository.UpdateAsync(verificationCode), Times.Once);
-        userRepository.Verify(repository => repository.SaveAsync(It.IsAny<User>()), Times.Never);
+        userRepository.Verify(repository => repository.SaveIfUniqueAsync(It.IsAny<User>()), Times.Never);
     }
 
     [Fact]
@@ -499,7 +557,7 @@ public class AuthServiceTests
         Assert.Equal(StatusCodes.Status409Conflict, exception.StatusCode);
         Assert.Equal("이미 사용 중인 닉네임입니다.", exception.Message);
         codeRepository.Verify(repository => repository.FindLatestActiveByEmailAsync(It.IsAny<string>()), Times.Never);
-        userRepository.Verify(repository => repository.SaveAsync(It.IsAny<User>()), Times.Never);
+        userRepository.Verify(repository => repository.SaveIfUniqueAsync(It.IsAny<User>()), Times.Never);
     }
 
     [Fact]

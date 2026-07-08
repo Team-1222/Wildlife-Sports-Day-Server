@@ -185,7 +185,8 @@ public class AuthService(
             CreatedAt = DateTime.UtcNow
         };
 
-        var savedUser = await userRepository.SaveAsync(user);
+        var savedUser = await userRepository.SaveIfUniqueAsync(user)
+            ?? throw new AppException("이미 사용 중인 이메일 또는 닉네임입니다.", StatusCodes.Status409Conflict);
 
         verificationCode.Status = EmailVerificationCodeStatus.Consumed;
         verificationCode.UnavailableAt = DateTime.UtcNow;
