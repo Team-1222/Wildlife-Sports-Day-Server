@@ -5,7 +5,8 @@ namespace Wildlife_Sports_Day_Server.Middleware;
 
 public class ExceptionMiddleware(RequestDelegate next, ILogger<ExceptionMiddleware> logger)
 {
-    public async Task InvokeAsync(HttpContext context)
+    public async Task InvokeAsync(HttpContext context)//HttpContext = 요청과 응답에 대한 모든 정보
+                                                      //(주소, 메서드, 헤더, 쿠키, 세션, 사용자 정보, 응답 상태)
     {
         try
         {

@@ -9,3 +9,13 @@ ___
 
 ___
 ## 랭킹 조회    
+
+___
+### 흐름
+클라이언트
+-> ASP.NET Core Middleware Pipeline
+-> Controller
+-> Service
+-> Repository
+-> EF Core DbContext
+-> DB

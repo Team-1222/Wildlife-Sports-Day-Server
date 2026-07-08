@@ -18,8 +18,8 @@ public class AuthService(
     IEmailSender emailSender,
     ILogger<AuthService> logger) : IAuthService
 {
-    private const int VerificationCodeMinutes = 5;//
-    private const int VerifiedSignupMinutes = 5;//인증 기간
+    private const int VerificationCodeMinutes = 5;//코드 허용 기간
+    private const int VerifiedSignupMinutes = 5;//코드 인증후 로그인 가능 기간
     private const int ResendCooldownSeconds = 60;//전송 대기 시간
     private const int MaxVerificationAttempts = 5;//이메일 인증 횟수
     private const string DefaultUserRole = "Player";
