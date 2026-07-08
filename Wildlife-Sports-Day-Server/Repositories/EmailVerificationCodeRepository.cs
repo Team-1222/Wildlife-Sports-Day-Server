@@ -13,6 +13,15 @@ public class EmailVerificationCodeRepository(AppDbContext dbContext) : IEmailVer
             .ThenByDescending(code => code.Id)
             .FirstOrDefaultAsync();
 
+    public async Task<EmailVerificationCode?> FindLatestActiveByEmailAsync(string email) =>
+        await dbContext.EmailVerificationCodes
+            .Where(code => code.Email == email
+                && (code.Status == EmailVerificationCodeStatus.Pending
+                    || code.Status == EmailVerificationCodeStatus.Verified))
+            .OrderByDescending(code => code.CreatedAt)
+            .ThenByDescending(code => code.Id)
+            .FirstOrDefaultAsync();
+
     public async Task<EmailVerificationCode> SaveAsync(EmailVerificationCode verificationCode)
     {
         dbContext.EmailVerificationCodes.Add(verificationCode);
@@ -30,6 +39,25 @@ public class EmailVerificationCodeRepository(AppDbContext dbContext) : IEmailVer
     {
         var codes = await dbContext.EmailVerificationCodes
             .Where(code => code.Email == email
+                && (code.Status == EmailVerificationCodeStatus.Pending
+                    || code.Status == EmailVerificationCodeStatus.Verified))
+            .ToListAsync();
+
+        var now = DateTime.UtcNow;
+        foreach (var code in codes)
+        {
+            code.Status = EmailVerificationCodeStatus.Revoked;
+            code.UnavailableAt = now;
+        }
+
+        await dbContext.SaveChangesAsync();
+    }
+
+    public async Task RevokeActiveByEmailExceptAsync(string email, int retainedCodeId)
+    {
+        var codes = await dbContext.EmailVerificationCodes
+            .Where(code => code.Email == email
+                && code.Id != retainedCodeId
                 && (code.Status == EmailVerificationCodeStatus.Pending
                     || code.Status == EmailVerificationCodeStatus.Verified))
             .ToListAsync();

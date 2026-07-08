@@ -18,10 +18,10 @@ public class AuthService(
     IEmailSender emailSender,
     ILogger<AuthService> logger) : IAuthService
 {
-    private const int VerificationCodeMinutes = 5;
-    private const int VerifiedSignupMinutes = 5;
-    private const int ResendCooldownSeconds = 60;
-    private const int MaxVerificationAttempts = 5;
+    private const int VerificationCodeMinutes = 5;//
+    private const int VerifiedSignupMinutes = 5;//인증 기간
+    private const int ResendCooldownSeconds = 60;//전송 대기 시간
+    private const int MaxVerificationAttempts = 5;//이메일 인증 횟수
     private const string DefaultUserRole = "Player";
 
     public async Task<MessageResponse> SendVerificationEmailAsync(SendVerificationCodeRequest request)
@@ -33,13 +33,11 @@ public class AuthService(
             throw new AppException("이미 사용 중인 이메일입니다.", StatusCodes.Status409Conflict);
         }
 
-        var latestCode = await emailVerificationCodeRepository.FindLatestByEmailAsync(normalizedEmail);
+        var latestCode = await emailVerificationCodeRepository.FindLatestActiveByEmailAsync(normalizedEmail);
         if (latestCode is not null && latestCode.CreatedAt > DateTime.UtcNow.AddSeconds(-ResendCooldownSeconds))
         {
             throw new AppException("인증 코드는 1분 후에 재발송할 수 있습니다.", StatusCodes.Status429TooManyRequests);
         }
-
-        await emailVerificationCodeRepository.RevokeUsableByEmailAsync(normalizedEmail);
 
         var rawCode = GenerateVerificationCode();
         var verificationCode = new EmailVerificationCode
@@ -69,6 +67,8 @@ public class AuthService(
             throw new AppException("인증 코드 발송에 실패했습니다.", StatusCodes.Status500InternalServerError);
         }
 
+        await emailVerificationCodeRepository.RevokeActiveByEmailExceptAsync(normalizedEmail, verificationCode.Id);
+
         logger.LogInformation(
             "Sent verification email for verification code {EmailVerificationCodeId}",
             verificationCode.Id);
@@ -79,7 +79,7 @@ public class AuthService(
     public async Task<MessageResponse> VerifyEmailCodeAsync(VerifyEmailCodeRequest request)
     {
         var normalizedEmail = NormalizeEmail(request.Email);
-        var verificationCode = await emailVerificationCodeRepository.FindLatestByEmailAsync(normalizedEmail);
+        var verificationCode = await emailVerificationCodeRepository.FindLatestActiveByEmailAsync(normalizedEmail);
         if (verificationCode is null)
         {
             throw new AppException("인증 코드를 찾을 수 없습니다.", StatusCodes.Status404NotFound);
@@ -161,7 +161,7 @@ public class AuthService(
             throw new AppException("이미 사용 중인 닉네임입니다.", StatusCodes.Status409Conflict);
         }
 
-        var verificationCode = await emailVerificationCodeRepository.FindLatestByEmailAsync(normalizedEmail);
+        var verificationCode = await emailVerificationCodeRepository.FindLatestActiveByEmailAsync(normalizedEmail);
         if (verificationCode is null || verificationCode.Status is not EmailVerificationCodeStatus.Verified)
         {
             throw new AppException("이메일 인증이 완료되지 않았습니다.", StatusCodes.Status400BadRequest);

@@ -27,7 +27,7 @@ public class AuthServiceTests
 
         userRepository.Setup(repository => repository.ExistsByEmailAsync("user@example.com")).ReturnsAsync(false);
         codeRepository
-            .Setup(repository => repository.FindLatestByEmailAsync("user@example.com"))
+            .Setup(repository => repository.FindLatestActiveByEmailAsync("user@example.com"))
             .ReturnsAsync((EmailVerificationCode?)null);
         codeRepository
             .Setup(repository => repository.SaveAsync(It.IsAny<EmailVerificationCode>()))
@@ -51,7 +51,7 @@ public class AuthServiceTests
         Assert.Equal("user@example.com", savedCode.Email);
         Assert.Equal(EmailVerificationCodeStatus.Pending, savedCode.Status);
         Assert.Null(savedCode.UnavailableAt);
-        codeRepository.Verify(repository => repository.RevokeUsableByEmailAsync("user@example.com"), Times.Once);
+        codeRepository.Verify(repository => repository.RevokeActiveByEmailExceptAsync("user@example.com", savedCode.Id), Times.Once);
     }
 
     [Fact]
@@ -60,12 +60,14 @@ public class AuthServiceTests
         var userRepository = new Mock<IUserRepository>();
         var codeRepository = new Mock<IEmailVerificationCodeRepository>();
         var emailSender = new Mock<IEmailSender>();
+        var existingCode = CreatePendingCode("654321", DateTime.UtcNow.AddMinutes(3));
+        existingCode.CreatedAt = DateTime.UtcNow.AddMinutes(-2);
         EmailVerificationCode? savedCode = null;
 
         userRepository.Setup(repository => repository.ExistsByEmailAsync("user@example.com")).ReturnsAsync(false);
         codeRepository
-            .Setup(repository => repository.FindLatestByEmailAsync("user@example.com"))
-            .ReturnsAsync((EmailVerificationCode?)null);
+            .Setup(repository => repository.FindLatestActiveByEmailAsync("user@example.com"))
+            .ReturnsAsync(existingCode);
         codeRepository
             .Setup(repository => repository.SaveAsync(It.IsAny<EmailVerificationCode>()))
             .Callback<EmailVerificationCode>(code => savedCode = code)
@@ -81,7 +83,7 @@ public class AuthServiceTests
         Assert.NotNull(savedCode);
         Assert.Equal("user@example.com", savedCode.Email);
         userRepository.Verify(repository => repository.ExistsByEmailAsync("user@example.com"), Times.Once);
-        codeRepository.Verify(repository => repository.RevokeUsableByEmailAsync("user@example.com"), Times.Once);
+        codeRepository.Verify(repository => repository.RevokeActiveByEmailExceptAsync("user@example.com", savedCode.Id), Times.Once);
         emailSender.Verify(sender => sender.SendAsync("user@example.com", It.IsAny<string>(), It.IsAny<string>()), Times.Once);
     }
 
@@ -91,12 +93,14 @@ public class AuthServiceTests
         var userRepository = new Mock<IUserRepository>();
         var codeRepository = new Mock<IEmailVerificationCodeRepository>();
         var emailSender = new Mock<IEmailSender>();
+        var existingCode = CreatePendingCode("654321", DateTime.UtcNow.AddMinutes(3));
+        existingCode.CreatedAt = DateTime.UtcNow.AddMinutes(-2);
         EmailVerificationCode? savedCode = null;
 
         userRepository.Setup(repository => repository.ExistsByEmailAsync("user@example.com")).ReturnsAsync(false);
         codeRepository
-            .Setup(repository => repository.FindLatestByEmailAsync("user@example.com"))
-            .ReturnsAsync((EmailVerificationCode?)null);
+            .Setup(repository => repository.FindLatestActiveByEmailAsync("user@example.com"))
+            .ReturnsAsync(existingCode);
         codeRepository
             .Setup(repository => repository.SaveAsync(It.IsAny<EmailVerificationCode>()))
             .Callback<EmailVerificationCode>(code => savedCode = code)
@@ -115,7 +119,12 @@ public class AuthServiceTests
         Assert.NotNull(savedCode);
         Assert.Equal(EmailVerificationCodeStatus.SendFailed, savedCode.Status);
         Assert.NotNull(savedCode.UnavailableAt);
+        Assert.Equal(EmailVerificationCodeStatus.Pending, existingCode.Status);
+        Assert.Null(existingCode.UnavailableAt);
         codeRepository.Verify(repository => repository.UpdateAsync(savedCode), Times.Once);
+        codeRepository.Verify(
+            repository => repository.RevokeActiveByEmailExceptAsync(It.IsAny<string>(), It.IsAny<int>()),
+            Times.Never);
     }
 
     [Fact]
@@ -128,7 +137,7 @@ public class AuthServiceTests
         latestCode.CreatedAt = DateTime.UtcNow;
 
         userRepository.Setup(repository => repository.ExistsByEmailAsync("user@example.com")).ReturnsAsync(false);
-        codeRepository.Setup(repository => repository.FindLatestByEmailAsync("user@example.com")).ReturnsAsync(latestCode);
+        codeRepository.Setup(repository => repository.FindLatestActiveByEmailAsync("user@example.com")).ReturnsAsync(latestCode);
 
         var service = CreateService(userRepository, codeRepository, emailSender);
 
@@ -137,7 +146,9 @@ public class AuthServiceTests
 
         Assert.Equal(StatusCodes.Status429TooManyRequests, exception.StatusCode);
         Assert.Equal("인증 코드는 1분 후에 재발송할 수 있습니다.", exception.Message);
-        codeRepository.Verify(repository => repository.RevokeUsableByEmailAsync(It.IsAny<string>()), Times.Never);
+        codeRepository.Verify(
+            repository => repository.RevokeActiveByEmailExceptAsync(It.IsAny<string>(), It.IsAny<int>()),
+            Times.Never);
         codeRepository.Verify(repository => repository.SaveAsync(It.IsAny<EmailVerificationCode>()), Times.Never);
         emailSender.Verify(sender => sender.SendAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
     }
@@ -236,7 +247,7 @@ public class AuthServiceTests
         var emailSender = new Mock<IEmailSender>();
         var verificationCode = CreatePendingCode("123456", DateTime.UtcNow.AddMinutes(5));
 
-        codeRepository.Setup(repository => repository.FindLatestByEmailAsync("user@example.com")).ReturnsAsync(verificationCode);
+        codeRepository.Setup(repository => repository.FindLatestActiveByEmailAsync("user@example.com")).ReturnsAsync(verificationCode);
 
         var service = CreateService(userRepository, codeRepository, emailSender);
 
@@ -259,7 +270,7 @@ public class AuthServiceTests
         var emailSender = new Mock<IEmailSender>();
         var verificationCode = CreatePendingCode("123456", DateTime.UtcNow.AddMinutes(-1));
 
-        codeRepository.Setup(repository => repository.FindLatestByEmailAsync("user@example.com")).ReturnsAsync(verificationCode);
+        codeRepository.Setup(repository => repository.FindLatestActiveByEmailAsync("user@example.com")).ReturnsAsync(verificationCode);
 
         var service = CreateService(userRepository, codeRepository, emailSender);
 
@@ -285,7 +296,7 @@ public class AuthServiceTests
         var emailSender = new Mock<IEmailSender>();
         var verificationCode = CreatePendingCode("123456", DateTime.UtcNow.AddMinutes(5));
 
-        codeRepository.Setup(repository => repository.FindLatestByEmailAsync("user@example.com")).ReturnsAsync(verificationCode);
+        codeRepository.Setup(repository => repository.FindLatestActiveByEmailAsync("user@example.com")).ReturnsAsync(verificationCode);
 
         var service = CreateService(userRepository, codeRepository, emailSender);
 
@@ -311,7 +322,7 @@ public class AuthServiceTests
         var verificationCode = CreatePendingCode("123456", DateTime.UtcNow.AddMinutes(5));
         verificationCode.Status = EmailVerificationCodeStatus.Revoked;
 
-        codeRepository.Setup(repository => repository.FindLatestByEmailAsync("user@example.com")).ReturnsAsync(verificationCode);
+        codeRepository.Setup(repository => repository.FindLatestActiveByEmailAsync("user@example.com")).ReturnsAsync(verificationCode);
 
         var service = CreateService(userRepository, codeRepository, emailSender);
 
@@ -336,7 +347,7 @@ public class AuthServiceTests
         var verificationCode = CreatePendingCode("123456", DateTime.UtcNow.AddMinutes(5));
         verificationCode.AttemptCount = 4;
 
-        codeRepository.Setup(repository => repository.FindLatestByEmailAsync("user@example.com")).ReturnsAsync(verificationCode);
+        codeRepository.Setup(repository => repository.FindLatestActiveByEmailAsync("user@example.com")).ReturnsAsync(verificationCode);
 
         var service = CreateService(userRepository, codeRepository, emailSender);
 
@@ -364,7 +375,7 @@ public class AuthServiceTests
         var verificationCode = CreatePendingCode("123456", DateTime.UtcNow.AddMinutes(5));
         verificationCode.AttemptCount = 5;
 
-        codeRepository.Setup(repository => repository.FindLatestByEmailAsync("user@example.com")).ReturnsAsync(verificationCode);
+        codeRepository.Setup(repository => repository.FindLatestActiveByEmailAsync("user@example.com")).ReturnsAsync(verificationCode);
 
         var service = CreateService(userRepository, codeRepository, emailSender);
 
@@ -392,7 +403,7 @@ public class AuthServiceTests
         userRepository.Setup(repository => repository.ExistsByEmailAsync("user@example.com")).ReturnsAsync(false);
         userRepository.Setup(repository => repository.ExistsByNicknameAsync("nickname")).ReturnsAsync(false);
         codeRepository
-            .Setup(repository => repository.FindLatestByEmailAsync("user@example.com"))
+            .Setup(repository => repository.FindLatestActiveByEmailAsync("user@example.com"))
             .ReturnsAsync((EmailVerificationCode?)null);
 
         var service = CreateService(userRepository, codeRepository, emailSender);
@@ -425,7 +436,7 @@ public class AuthServiceTests
                 user.Id = 7;
                 return user;
             });
-        codeRepository.Setup(repository => repository.FindLatestByEmailAsync("user@example.com")).ReturnsAsync(verificationCode);
+        codeRepository.Setup(repository => repository.FindLatestActiveByEmailAsync("user@example.com")).ReturnsAsync(verificationCode);
 
         var service = CreateService(userRepository, codeRepository, emailSender);
 
@@ -457,7 +468,7 @@ public class AuthServiceTests
 
         userRepository.Setup(repository => repository.ExistsByEmailAsync("user@example.com")).ReturnsAsync(false);
         userRepository.Setup(repository => repository.ExistsByNicknameAsync("nickname")).ReturnsAsync(false);
-        codeRepository.Setup(repository => repository.FindLatestByEmailAsync("user@example.com")).ReturnsAsync(verificationCode);
+        codeRepository.Setup(repository => repository.FindLatestActiveByEmailAsync("user@example.com")).ReturnsAsync(verificationCode);
 
         var service = CreateService(userRepository, codeRepository, emailSender);
 
@@ -487,7 +498,7 @@ public class AuthServiceTests
 
         Assert.Equal(StatusCodes.Status409Conflict, exception.StatusCode);
         Assert.Equal("이미 사용 중인 닉네임입니다.", exception.Message);
-        codeRepository.Verify(repository => repository.FindLatestByEmailAsync(It.IsAny<string>()), Times.Never);
+        codeRepository.Verify(repository => repository.FindLatestActiveByEmailAsync(It.IsAny<string>()), Times.Never);
         userRepository.Verify(repository => repository.SaveAsync(It.IsAny<User>()), Times.Never);
     }
 
