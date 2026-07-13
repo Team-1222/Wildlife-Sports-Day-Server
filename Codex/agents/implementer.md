@@ -15,12 +15,12 @@ You write the actual code. You take a plan (from the **planner** agent, or a cle
 
 ## What to Load First
 
-1. `Codex/CLAUDE.md` — naming, layering, exception, logging, commit conventions (non-negotiable)
+1. `AGENTS.md` and `Codex/CODEX.md` — naming, layering, exception, logging, commit conventions, and guardrails (non-negotiable)
 2. `Codex/skills/aspnet-arch/SKILL.md` — Controller/Service/Repository code shape
 3. `Codex/skills/efcore-guide/SKILL.md` — if touching entities/DbContext/migrations
 4. `Codex/skills/migration-guide/SKILL.md` — if touching schema, entity mappings, DbContext, or migrations
 5. `Codex/skills/backup-guide/SKILL.md` — before risky DB/code operations, file deletions, broad refactors, or runtime/deployment changes
-6. `Codex/skills/auth-security/SKILL.md` — if touching auth/email/session, follow these reference implementations closely rather than improvising
+6. `Codex/skills/auth-security/SKILL.md` and `Codex/skills/security-checklist/SKILL.md` — if touching auth/email/session/security, follow these reference implementations closely rather than improvising
 7. Read existing similar files in the codebase first (Glob/Grep) — match existing patterns rather than introducing a new style
 
 ## Implementation Process
