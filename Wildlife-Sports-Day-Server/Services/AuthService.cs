@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text.Encodings.Web;
@@ -23,11 +22,7 @@ public class AuthService(
     private const int VerifiedSignupMinutes = 5;//코드 인증후 로그인 가능 기간
     private const int ResendCooldownSeconds = 60;//전송 대기 시간
     private const int MaxVerificationAttempts = 5;//이메일 인증 횟수
-    private const int MaxLoginAttempts = 5;
     private const string DefaultUserRole = "Player";
-    private static readonly TimeSpan LoginAttemptWindow = TimeSpan.FromMinutes(5);
-    private static readonly ConcurrentDictionary<string, LoginAttemptState> LoginAttempts = new();
-    private static readonly string DummyPasswordHash = BCrypt.Net.BCrypt.HashPassword(Guid.NewGuid().ToString("N"));
 
     public async Task<MessageResponse> SendVerificationEmailAsync(SendVerificationCodeRequest request)
     {
@@ -35,8 +30,7 @@ public class AuthService(
 
         if (await userRepository.ExistsByEmailAsync(normalizedEmail))
         {
-            logger.LogInformation("Skipped verification email for existing user");
-            return new MessageResponse { Message = "인증 코드가 발송되었습니다." };
+            throw new AppException("이미 사용 중인 이메일입니다.", StatusCodes.Status409Conflict);
         }
 
         var latestCode = await emailVerificationCodeRepository.FindLatestActiveByEmailAsync(normalizedEmail);
@@ -82,7 +76,7 @@ public class AuthService(
         return new MessageResponse { Message = "인증 코드가 발송되었습니다." };
     }
 
-    public async Task<MessageResponse> VerifyEmailCodeAsync(VerifyEmailCodeRequest request, HttpContext httpContext)
+    public async Task<MessageResponse> VerifyEmailCodeAsync(VerifyEmailCodeRequest request)
     {
         var normalizedEmail = NormalizeEmail(request.Email);
         var verificationCode = await emailVerificationCodeRepository.FindLatestActiveByEmailAsync(normalizedEmail);
@@ -119,10 +113,14 @@ public class AuthService(
 
         if (!BCrypt.Net.BCrypt.Verify(request.Code, verificationCode.CodeHash))
         {
-            verificationCode = await emailVerificationCodeRepository.IncrementAttemptCountAsync(
-                    verificationCode.Id,
-                    MaxVerificationAttempts)
-                ?? throw new AppException("사용할 수 없는 인증 코드입니다.", StatusCodes.Status400BadRequest);
+            verificationCode.AttemptCount++;
+            if (verificationCode.AttemptCount >= MaxVerificationAttempts)
+            {
+                verificationCode.Status = EmailVerificationCodeStatus.AttemptLimitExceeded;
+                verificationCode.UnavailableAt = DateTime.UtcNow;
+            }
+
+            await emailVerificationCodeRepository.UpdateAsync(verificationCode);
 
             if (verificationCode.Status is EmailVerificationCodeStatus.AttemptLimitExceeded)
             {
@@ -136,11 +134,6 @@ public class AuthService(
         verificationCode.VerifiedAt = DateTime.UtcNow;
         await emailVerificationCodeRepository.UpdateAsync(verificationCode);
 
-        await httpContext.Session.LoadAsync();
-        httpContext.Session.SetString(EmailVerificationSessionKeys.VerifiedEmail, verificationCode.Email);
-        httpContext.Session.SetInt32(EmailVerificationSessionKeys.VerifiedCodeId, verificationCode.Id);
-        await httpContext.Session.CommitAsync();
-
         logger.LogInformation(
             "Verified email code {EmailVerificationCodeId}",
             verificationCode.Id);
@@ -148,7 +141,7 @@ public class AuthService(
         return new MessageResponse { Message = "이메일 인증이 완료되었습니다." };
     }
 
-    public async Task<RegisterResponse> RegisterAsync(RegisterRequest request, HttpContext httpContext)
+    public async Task<RegisterResponse> RegisterAsync(RegisterRequest request)
     {
         var normalizedEmail = NormalizeEmail(request.Email);
         var normalizedNickname = NormalizeNickname(request.Nickname);
@@ -156,14 +149,6 @@ public class AuthService(
         if (request.Password != request.ConfirmPassword)
         {
             throw new AppException("비밀번호가 일치하지 않습니다.", StatusCodes.Status400BadRequest);
-        }
-
-        await httpContext.Session.LoadAsync();
-        var verifiedEmail = httpContext.Session.GetString(EmailVerificationSessionKeys.VerifiedEmail);
-        var verifiedCodeId = httpContext.Session.GetInt32(EmailVerificationSessionKeys.VerifiedCodeId);
-        if (verifiedEmail != normalizedEmail || verifiedCodeId is null)
-        {
-            throw new AppException("이메일 인증이 완료되지 않았습니다.", StatusCodes.Status400BadRequest);
         }
 
         if (await userRepository.ExistsByEmailAsync(normalizedEmail))
@@ -176,13 +161,9 @@ public class AuthService(
             throw new AppException("이미 사용 중인 닉네임입니다.", StatusCodes.Status409Conflict);
         }
 
-        var verificationCode = await emailVerificationCodeRepository.FindByIdAsync(verifiedCodeId.Value);
-        if (verificationCode is null
-            || verificationCode.Email != normalizedEmail
-            || verificationCode.Status is not EmailVerificationCodeStatus.Verified)
+        var verificationCode = await emailVerificationCodeRepository.FindLatestActiveByEmailAsync(normalizedEmail);
+        if (verificationCode is null || verificationCode.Status is not EmailVerificationCodeStatus.Verified)
         {
-            ClearVerifiedEmailSession(httpContext);
-            await httpContext.Session.CommitAsync();
             throw new AppException("이메일 인증이 완료되지 않았습니다.", StatusCodes.Status400BadRequest);
         }
 
@@ -193,8 +174,6 @@ public class AuthService(
             verificationCode.Status = EmailVerificationCodeStatus.Expired;
             verificationCode.UnavailableAt = now;
             await emailVerificationCodeRepository.UpdateAsync(verificationCode);
-            ClearVerifiedEmailSession(httpContext);
-            await httpContext.Session.CommitAsync();
             throw new AppException("인증 코드가 만료되었습니다.", StatusCodes.Status400BadRequest);
         }
 
@@ -212,8 +191,6 @@ public class AuthService(
         verificationCode.Status = EmailVerificationCodeStatus.Consumed;
         verificationCode.UnavailableAt = DateTime.UtcNow;
         await emailVerificationCodeRepository.UpdateAsync(verificationCode);
-        ClearVerifiedEmailSession(httpContext);
-        await httpContext.Session.CommitAsync();
 
         logger.LogInformation("Registered new user {UserId}", savedUser.Id);
 
@@ -230,22 +207,11 @@ public class AuthService(
     public async Task<LoginResponse> LoginAsync(LoginRequest request, HttpContext httpContext)
     {
         var normalizedNickname = NormalizeNickname(request.Nickname);
-        var loginAttemptKey = BuildLoginAttemptKey(normalizedNickname, httpContext);
-        if (IsLoginAttemptBlocked(loginAttemptKey))
-        {
-            throw new AppException("로그인 시도 횟수를 초과했습니다.", StatusCodes.Status429TooManyRequests);
-        }
-
         var user = await userRepository.FindByNicknameAsync(normalizedNickname);
-        var passwordHash = user?.PasswordHash ?? DummyPasswordHash;
-        var isPasswordValid = BCrypt.Net.BCrypt.Verify(request.Password, passwordHash);
-        if (user is null || !isPasswordValid)
+        if (user is null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
         {
-            RecordFailedLogin(loginAttemptKey);
             throw new AppException("닉네임 또는 비밀번호가 올바르지 않습니다.", StatusCodes.Status401Unauthorized);
         }
-
-        LoginAttempts.TryRemove(loginAttemptKey, out _);
 
         var claims = new List<Claim>
         {
@@ -290,45 +256,6 @@ public class AuthService(
     private static string NormalizeNickname(string nickname) =>
         nickname.Trim();
 
-    private static string BuildLoginAttemptKey(string nickname, HttpContext httpContext)
-    {
-        var remoteAddress = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-        return $"{remoteAddress}:{nickname}";
-    }
-
-    private static bool IsLoginAttemptBlocked(string key)
-    {
-        if (!LoginAttempts.TryGetValue(key, out var state))
-        {
-            return false;
-        }
-
-        if (state.StartedAtUtc.Add(LoginAttemptWindow) <= DateTime.UtcNow)
-        {
-            LoginAttempts.TryRemove(key, out _);
-            return false;
-        }
-
-        return state.Count >= MaxLoginAttempts;
-    }
-
-    private static void RecordFailedLogin(string key)
-    {
-        var now = DateTime.UtcNow;
-        LoginAttempts.AddOrUpdate(
-            key,
-            _ => new LoginAttemptState(1, now),
-            (_, state) => state.StartedAtUtc.Add(LoginAttemptWindow) <= now
-                ? new LoginAttemptState(1, now)
-                : state with { Count = state.Count + 1 });
-    }
-
-    private static void ClearVerifiedEmailSession(HttpContext httpContext)
-    {
-        httpContext.Session.Remove(EmailVerificationSessionKeys.VerifiedEmail);
-        httpContext.Session.Remove(EmailVerificationSessionKeys.VerifiedCodeId);
-    }
-
     private static string GenerateVerificationCode()
     {
         var code = RandomNumberGenerator.GetInt32(100000, 1000000);
@@ -351,6 +278,4 @@ public class AuthService(
                <p>이 코드는 {VerificationCodeMinutes}분 후에 만료됩니다.</p>
                """;
     }
-
-    private sealed record LoginAttemptState(int Count, DateTime StartedAtUtc);
 }
