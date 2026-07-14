@@ -184,7 +184,7 @@ public class AuthServiceTests
     }
 
     [Fact]
-    public async Task SendVerificationEmailAsync_DuplicateEmail_ThrowsConflict()
+    public async Task SendVerificationEmailAsync_DuplicateEmail_ReturnsMessageWithoutSendingEmail()
     {
         var userRepository = new Mock<IUserRepository>();
         var codeRepository = new Mock<IEmailVerificationCodeRepository>();
@@ -194,11 +194,11 @@ public class AuthServiceTests
 
         var service = CreateService(userRepository, codeRepository, emailSender);
 
-        var exception = await Assert.ThrowsAsync<AppException>(() =>
-            service.SendVerificationEmailAsync(new SendVerificationCodeRequest { Email = "user@example.com" }));
+        var response = await service.SendVerificationEmailAsync(new SendVerificationCodeRequest { Email = "user@example.com" });
 
-        Assert.Equal(StatusCodes.Status409Conflict, exception.StatusCode);
-        Assert.Equal("이미 사용 중인 이메일입니다.", exception.Message);
+        Assert.Equal("인증 코드가 발송되었습니다.", response.Message);
+        codeRepository.Verify(repository => repository.SaveAsync(It.IsAny<EmailVerificationCode>()), Times.Never);
+        emailSender.Verify(sender => sender.SendAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
     }
 
     [Fact]
@@ -270,12 +270,40 @@ public class AuthServiceTests
     }
 
     [Fact]
+    public async Task LoginAsync_TooManyFailures_ThrowsTooManyRequests()
+    {
+        var userRepository = new Mock<IUserRepository>();
+        var codeRepository = new Mock<IEmailVerificationCodeRepository>();
+        var emailSender = new Mock<IEmailSender>();
+        var authenticationService = new TestAuthenticationService();
+        var httpContext = CreateHttpContext(authenticationService);
+
+        userRepository.Setup(repository => repository.FindByNicknameAsync("locked-user")).ReturnsAsync((User?)null);
+
+        var service = CreateService(userRepository, codeRepository, emailSender);
+        var request = CreateLoginRequest("locked-user");
+
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            await Assert.ThrowsAsync<AppException>(() => service.LoginAsync(request, httpContext));
+        }
+
+        var exception = await Assert.ThrowsAsync<AppException>(() => service.LoginAsync(request, httpContext));
+
+        Assert.Equal(StatusCodes.Status429TooManyRequests, exception.StatusCode);
+        Assert.Equal("로그인 시도 횟수를 초과했습니다.", exception.Message);
+        Assert.Null(authenticationService.SignedInPrincipal);
+    }
+
+    [Fact]
     public async Task VerifyEmailCodeAsync_ValidCode_MarksCodeVerified()
     {
         var userRepository = new Mock<IUserRepository>();
         var codeRepository = new Mock<IEmailVerificationCodeRepository>();
         var emailSender = new Mock<IEmailSender>();
         var verificationCode = CreatePendingCode("123456", DateTime.UtcNow.AddMinutes(5));
+        verificationCode.Id = 11;
+        var httpContext = CreateHttpContext();
 
         codeRepository.Setup(repository => repository.FindLatestActiveByEmailAsync("user@example.com")).ReturnsAsync(verificationCode);
 
@@ -285,10 +313,12 @@ public class AuthServiceTests
         {
             Email = "user@example.com",
             Code = "123456"
-        });
+        }, httpContext);
 
         Assert.Equal(EmailVerificationCodeStatus.Verified, verificationCode.Status);
         Assert.NotNull(verificationCode.VerifiedAt);
+        Assert.Equal("user@example.com", httpContext.Session.GetString("EmailVerification.VerifiedEmail"));
+        Assert.Equal(11, httpContext.Session.GetInt32("EmailVerification.VerifiedCodeId"));
         codeRepository.Verify(repository => repository.UpdateAsync(verificationCode), Times.Once);
     }
 
@@ -299,6 +329,7 @@ public class AuthServiceTests
         var codeRepository = new Mock<IEmailVerificationCodeRepository>();
         var emailSender = new Mock<IEmailSender>();
         var verificationCode = CreatePendingCode("123456", DateTime.UtcNow.AddMinutes(-1));
+        var httpContext = CreateHttpContext();
 
         codeRepository.Setup(repository => repository.FindLatestActiveByEmailAsync("user@example.com")).ReturnsAsync(verificationCode);
 
@@ -309,7 +340,7 @@ public class AuthServiceTests
             {
                 Email = "user@example.com",
                 Code = "123456"
-            }));
+            }, httpContext));
 
         Assert.Equal(StatusCodes.Status400BadRequest, exception.StatusCode);
         Assert.Equal("인증 코드가 만료되었습니다.", exception.Message);
@@ -325,8 +356,14 @@ public class AuthServiceTests
         var codeRepository = new Mock<IEmailVerificationCodeRepository>();
         var emailSender = new Mock<IEmailSender>();
         var verificationCode = CreatePendingCode("123456", DateTime.UtcNow.AddMinutes(5));
+        verificationCode.Id = 12;
+        var httpContext = CreateHttpContext();
 
         codeRepository.Setup(repository => repository.FindLatestActiveByEmailAsync("user@example.com")).ReturnsAsync(verificationCode);
+        codeRepository
+            .Setup(repository => repository.IncrementAttemptCountAsync(verificationCode.Id, 5))
+            .Callback<int, int>((_, _) => verificationCode.AttemptCount++)
+            .ReturnsAsync(verificationCode);
 
         var service = CreateService(userRepository, codeRepository, emailSender);
 
@@ -335,12 +372,13 @@ public class AuthServiceTests
             {
                 Email = "user@example.com",
                 Code = "654321"
-            }));
+            }, httpContext));
 
         Assert.Equal(StatusCodes.Status400BadRequest, exception.StatusCode);
         Assert.Equal("인증 코드가 올바르지 않습니다.", exception.Message);
         Assert.Equal(1, verificationCode.AttemptCount);
-        codeRepository.Verify(repository => repository.UpdateAsync(verificationCode), Times.Once);
+        codeRepository.Verify(repository => repository.IncrementAttemptCountAsync(verificationCode.Id, 5), Times.Once);
+        codeRepository.Verify(repository => repository.UpdateAsync(verificationCode), Times.Never);
     }
 
     [Fact]
@@ -351,6 +389,7 @@ public class AuthServiceTests
         var emailSender = new Mock<IEmailSender>();
         var verificationCode = CreatePendingCode("123456", DateTime.UtcNow.AddMinutes(5));
         verificationCode.Status = EmailVerificationCodeStatus.Revoked;
+        var httpContext = CreateHttpContext();
 
         codeRepository.Setup(repository => repository.FindLatestActiveByEmailAsync("user@example.com")).ReturnsAsync(verificationCode);
 
@@ -361,7 +400,7 @@ public class AuthServiceTests
             {
                 Email = "user@example.com",
                 Code = "123456"
-            }));
+            }, httpContext));
 
         Assert.Equal(StatusCodes.Status400BadRequest, exception.StatusCode);
         Assert.Equal("사용할 수 없는 인증 코드입니다.", exception.Message);
@@ -375,9 +414,20 @@ public class AuthServiceTests
         var codeRepository = new Mock<IEmailVerificationCodeRepository>();
         var emailSender = new Mock<IEmailSender>();
         var verificationCode = CreatePendingCode("123456", DateTime.UtcNow.AddMinutes(5));
+        verificationCode.Id = 13;
         verificationCode.AttemptCount = 4;
+        var httpContext = CreateHttpContext();
 
         codeRepository.Setup(repository => repository.FindLatestActiveByEmailAsync("user@example.com")).ReturnsAsync(verificationCode);
+        codeRepository
+            .Setup(repository => repository.IncrementAttemptCountAsync(verificationCode.Id, 5))
+            .Callback<int, int>((_, _) =>
+            {
+                verificationCode.AttemptCount++;
+                verificationCode.Status = EmailVerificationCodeStatus.AttemptLimitExceeded;
+                verificationCode.UnavailableAt = DateTime.UtcNow;
+            })
+            .ReturnsAsync(verificationCode);
 
         var service = CreateService(userRepository, codeRepository, emailSender);
 
@@ -386,14 +436,15 @@ public class AuthServiceTests
             {
                 Email = "user@example.com",
                 Code = "654321"
-            }));
+            }, httpContext));
 
         Assert.Equal(StatusCodes.Status429TooManyRequests, exception.StatusCode);
         Assert.Equal("인증 코드 시도 횟수를 초과했습니다.", exception.Message);
         Assert.Equal(5, verificationCode.AttemptCount);
         Assert.Equal(EmailVerificationCodeStatus.AttemptLimitExceeded, verificationCode.Status);
         Assert.NotNull(verificationCode.UnavailableAt);
-        codeRepository.Verify(repository => repository.UpdateAsync(verificationCode), Times.Once);
+        codeRepository.Verify(repository => repository.IncrementAttemptCountAsync(verificationCode.Id, 5), Times.Once);
+        codeRepository.Verify(repository => repository.UpdateAsync(verificationCode), Times.Never);
     }
 
     [Fact]
@@ -404,6 +455,7 @@ public class AuthServiceTests
         var emailSender = new Mock<IEmailSender>();
         var verificationCode = CreatePendingCode("123456", DateTime.UtcNow.AddMinutes(5));
         verificationCode.AttemptCount = 5;
+        var httpContext = CreateHttpContext();
 
         codeRepository.Setup(repository => repository.FindLatestActiveByEmailAsync("user@example.com")).ReturnsAsync(verificationCode);
 
@@ -414,7 +466,7 @@ public class AuthServiceTests
             {
                 Email = "user@example.com",
                 Code = "123456"
-            }));
+            }, httpContext));
 
         Assert.Equal(StatusCodes.Status429TooManyRequests, exception.StatusCode);
         Assert.Equal("인증 코드 시도 횟수를 초과했습니다.", exception.Message);
@@ -429,6 +481,7 @@ public class AuthServiceTests
         var userRepository = new Mock<IUserRepository>();
         var codeRepository = new Mock<IEmailVerificationCodeRepository>();
         var emailSender = new Mock<IEmailSender>();
+        var httpContext = CreateHttpContext();
 
         userRepository.Setup(repository => repository.ExistsByEmailAsync("user@example.com")).ReturnsAsync(false);
         userRepository.Setup(repository => repository.ExistsByNicknameAsync("nickname")).ReturnsAsync(false);
@@ -438,10 +491,13 @@ public class AuthServiceTests
 
         var service = CreateService(userRepository, codeRepository, emailSender);
 
-        var exception = await Assert.ThrowsAsync<AppException>(() => service.RegisterAsync(CreateRegisterRequest()));
+        var exception = await Assert.ThrowsAsync<AppException>(() =>
+            service.RegisterAsync(CreateRegisterRequest(), httpContext));
 
         Assert.Equal(StatusCodes.Status400BadRequest, exception.StatusCode);
         Assert.Equal("이메일 인증이 완료되지 않았습니다.", exception.Message);
+        userRepository.Verify(repository => repository.ExistsByEmailAsync(It.IsAny<string>()), Times.Never);
+        codeRepository.Verify(repository => repository.FindByIdAsync(It.IsAny<int>()), Times.Never);
         userRepository.Verify(repository => repository.SaveIfUniqueAsync(It.IsAny<User>()), Times.Never);
     }
 
@@ -452,8 +508,10 @@ public class AuthServiceTests
         var codeRepository = new Mock<IEmailVerificationCodeRepository>();
         var emailSender = new Mock<IEmailSender>();
         var verificationCode = CreatePendingCode("123456", DateTime.UtcNow.AddMinutes(-1));
+        verificationCode.Id = 21;
         verificationCode.Status = EmailVerificationCodeStatus.Verified;
         verificationCode.VerifiedAt = DateTime.UtcNow;
+        var httpContext = CreateVerifiedEmailHttpContext(verificationCode.Id);
         User? savedUser = null;
 
         userRepository.Setup(repository => repository.ExistsByEmailAsync("user@example.com")).ReturnsAsync(false);
@@ -466,11 +524,11 @@ public class AuthServiceTests
                 user.Id = 7;
                 return user;
             });
-        codeRepository.Setup(repository => repository.FindLatestActiveByEmailAsync("user@example.com")).ReturnsAsync(verificationCode);
+        codeRepository.Setup(repository => repository.FindByIdAsync(verificationCode.Id)).ReturnsAsync(verificationCode);
 
         var service = CreateService(userRepository, codeRepository, emailSender);
 
-        var response = await service.RegisterAsync(CreateRegisterRequest());
+        var response = await service.RegisterAsync(CreateRegisterRequest(), httpContext);
 
         Assert.Equal(7, response.UserId);
         Assert.Equal("user@example.com", response.Email);
@@ -483,7 +541,31 @@ public class AuthServiceTests
         Assert.True(BCrypt.Net.BCrypt.Verify(CreateValidCredential(), savedUser.PasswordHash));
         Assert.Equal(EmailVerificationCodeStatus.Consumed, verificationCode.Status);
         Assert.NotNull(verificationCode.UnavailableAt);
+        Assert.Null(httpContext.Session.GetString("EmailVerification.VerifiedEmail"));
+        Assert.Null(httpContext.Session.GetInt32("EmailVerification.VerifiedCodeId"));
         codeRepository.Verify(repository => repository.UpdateAsync(verificationCode), Times.Once);
+    }
+
+    [Fact]
+    public async Task RegisterAsync_DuplicateEmail_ThrowsConflict()
+    {
+        var userRepository = new Mock<IUserRepository>();
+        var codeRepository = new Mock<IEmailVerificationCodeRepository>();
+        var emailSender = new Mock<IEmailSender>();
+        var httpContext = CreateVerifiedEmailHttpContext(25);
+
+        userRepository.Setup(repository => repository.ExistsByEmailAsync("user@example.com")).ReturnsAsync(true);
+
+        var service = CreateService(userRepository, codeRepository, emailSender);
+
+        var exception = await Assert.ThrowsAsync<AppException>(() =>
+            service.RegisterAsync(CreateRegisterRequest(), httpContext));
+
+        Assert.Equal(StatusCodes.Status409Conflict, exception.StatusCode);
+        Assert.Equal("이미 사용 중인 이메일입니다.", exception.Message);
+        userRepository.Verify(repository => repository.ExistsByNicknameAsync(It.IsAny<string>()), Times.Never);
+        codeRepository.Verify(repository => repository.FindByIdAsync(It.IsAny<int>()), Times.Never);
+        userRepository.Verify(repository => repository.SaveIfUniqueAsync(It.IsAny<User>()), Times.Never);
     }
 
     [Fact]
@@ -493,19 +575,22 @@ public class AuthServiceTests
         var codeRepository = new Mock<IEmailVerificationCodeRepository>();
         var emailSender = new Mock<IEmailSender>();
         var verificationCode = CreatePendingCode("123456", DateTime.UtcNow.AddMinutes(5));
+        verificationCode.Id = 22;
         verificationCode.Status = EmailVerificationCodeStatus.Verified;
         verificationCode.VerifiedAt = DateTime.UtcNow;
+        var httpContext = CreateVerifiedEmailHttpContext(verificationCode.Id);
 
         userRepository.Setup(repository => repository.ExistsByEmailAsync("user@example.com")).ReturnsAsync(false);
         userRepository.Setup(repository => repository.ExistsByNicknameAsync("nickname")).ReturnsAsync(false);
         userRepository
             .Setup(repository => repository.SaveIfUniqueAsync(It.IsAny<User>()))
             .ReturnsAsync((User?)null);
-        codeRepository.Setup(repository => repository.FindLatestActiveByEmailAsync("user@example.com")).ReturnsAsync(verificationCode);
+        codeRepository.Setup(repository => repository.FindByIdAsync(verificationCode.Id)).ReturnsAsync(verificationCode);
 
         var service = CreateService(userRepository, codeRepository, emailSender);
 
-        var exception = await Assert.ThrowsAsync<AppException>(() => service.RegisterAsync(CreateRegisterRequest()));
+        var exception = await Assert.ThrowsAsync<AppException>(() =>
+            service.RegisterAsync(CreateRegisterRequest(), httpContext));
 
         Assert.Equal(StatusCodes.Status409Conflict, exception.StatusCode);
         Assert.Equal("이미 사용 중인 이메일 또는 닉네임입니다.", exception.Message);
@@ -521,21 +606,26 @@ public class AuthServiceTests
         var codeRepository = new Mock<IEmailVerificationCodeRepository>();
         var emailSender = new Mock<IEmailSender>();
         var verificationCode = CreatePendingCode("123456", DateTime.UtcNow.AddMinutes(5));
+        verificationCode.Id = 23;
         verificationCode.Status = EmailVerificationCodeStatus.Verified;
         verificationCode.VerifiedAt = DateTime.UtcNow.AddMinutes(-6);
+        var httpContext = CreateVerifiedEmailHttpContext(verificationCode.Id);
 
         userRepository.Setup(repository => repository.ExistsByEmailAsync("user@example.com")).ReturnsAsync(false);
         userRepository.Setup(repository => repository.ExistsByNicknameAsync("nickname")).ReturnsAsync(false);
-        codeRepository.Setup(repository => repository.FindLatestActiveByEmailAsync("user@example.com")).ReturnsAsync(verificationCode);
+        codeRepository.Setup(repository => repository.FindByIdAsync(verificationCode.Id)).ReturnsAsync(verificationCode);
 
         var service = CreateService(userRepository, codeRepository, emailSender);
 
-        var exception = await Assert.ThrowsAsync<AppException>(() => service.RegisterAsync(CreateRegisterRequest()));
+        var exception = await Assert.ThrowsAsync<AppException>(() =>
+            service.RegisterAsync(CreateRegisterRequest(), httpContext));
 
         Assert.Equal(StatusCodes.Status400BadRequest, exception.StatusCode);
         Assert.Equal("인증 코드가 만료되었습니다.", exception.Message);
         Assert.Equal(EmailVerificationCodeStatus.Expired, verificationCode.Status);
         Assert.NotNull(verificationCode.UnavailableAt);
+        Assert.Null(httpContext.Session.GetString("EmailVerification.VerifiedEmail"));
+        Assert.Null(httpContext.Session.GetInt32("EmailVerification.VerifiedCodeId"));
         codeRepository.Verify(repository => repository.UpdateAsync(verificationCode), Times.Once);
         userRepository.Verify(repository => repository.SaveIfUniqueAsync(It.IsAny<User>()), Times.Never);
     }
@@ -546,13 +636,15 @@ public class AuthServiceTests
         var userRepository = new Mock<IUserRepository>();
         var codeRepository = new Mock<IEmailVerificationCodeRepository>();
         var emailSender = new Mock<IEmailSender>();
+        var httpContext = CreateVerifiedEmailHttpContext(24);
 
         userRepository.Setup(repository => repository.ExistsByEmailAsync("user@example.com")).ReturnsAsync(false);
         userRepository.Setup(repository => repository.ExistsByNicknameAsync("nickname")).ReturnsAsync(true);
 
         var service = CreateService(userRepository, codeRepository, emailSender);
 
-        var exception = await Assert.ThrowsAsync<AppException>(() => service.RegisterAsync(CreateRegisterRequest()));
+        var exception = await Assert.ThrowsAsync<AppException>(() =>
+            service.RegisterAsync(CreateRegisterRequest(), httpContext));
 
         Assert.Equal(StatusCodes.Status409Conflict, exception.StatusCode);
         Assert.Equal("이미 사용 중인 닉네임입니다.", exception.Message);
@@ -566,11 +658,12 @@ public class AuthServiceTests
         var userRepository = new Mock<IUserRepository>();
         var codeRepository = new Mock<IEmailVerificationCodeRepository>();
         var emailSender = new Mock<IEmailSender>();
+        var httpContext = CreateHttpContext();
 
         var service = CreateService(userRepository, codeRepository, emailSender);
 
         var exception = await Assert.ThrowsAsync<AppException>(() =>
-            service.RegisterAsync(CreateRegisterRequest(CreateDifferentCredential())));
+            service.RegisterAsync(CreateRegisterRequest(CreateDifferentCredential()), httpContext));
 
         Assert.Equal(StatusCodes.Status400BadRequest, exception.StatusCode);
         Assert.Equal("비밀번호가 일치하지 않습니다.", exception.Message);
@@ -593,7 +686,25 @@ public class AuthServiceTests
             .AddSingleton<IAuthenticationService>(authenticationService)
             .BuildServiceProvider();
 
-        return new DefaultHttpContext { RequestServices = services };
+        return new DefaultHttpContext
+        {
+            RequestServices = services,
+            Session = new TestSession()
+        };
+    }
+
+    private static DefaultHttpContext CreateHttpContext() =>
+        new()
+        {
+            Session = new TestSession()
+        };
+
+    private static DefaultHttpContext CreateVerifiedEmailHttpContext(int verificationCodeId)
+    {
+        var httpContext = CreateHttpContext();
+        httpContext.Session.SetString("EmailVerification.VerifiedEmail", "user@example.com");
+        httpContext.Session.SetInt32("EmailVerification.VerifiedCodeId", verificationCodeId);
+        return httpContext;
     }
 
     private static EmailVerificationCode CreatePendingCode(string rawCode, DateTime expiresAt) =>
@@ -670,5 +781,32 @@ public class AuthServiceTests
 
         public Task SignOutAsync(HttpContext context, string? scheme, AuthenticationProperties? properties) =>
             Task.CompletedTask;
+    }
+
+    private sealed class TestSession : ISession
+    {
+        private readonly Dictionary<string, byte[]> values = new();
+
+        public bool IsAvailable => true;
+        public string Id => "test-session";
+        public IEnumerable<string> Keys => values.Keys;
+
+        public Task LoadAsync(CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public Task CommitAsync(CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public bool TryGetValue(string key, out byte[] value) =>
+            values.TryGetValue(key, out value!);
+
+        public void Set(string key, byte[] value) =>
+            values[key] = value;
+
+        public void Remove(string key) =>
+            values.Remove(key);
+
+        public void Clear() =>
+            values.Clear();
     }
 }

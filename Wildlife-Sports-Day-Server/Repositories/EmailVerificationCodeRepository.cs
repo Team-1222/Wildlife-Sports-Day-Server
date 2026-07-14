@@ -6,6 +6,10 @@ namespace Wildlife_Sports_Day_Server.Repositories;
 
 public class EmailVerificationCodeRepository(AppDbContext dbContext) : IEmailVerificationCodeRepository
 {
+    public async Task<EmailVerificationCode?> FindByIdAsync(int id) =>
+        await dbContext.EmailVerificationCodes
+            .FirstOrDefaultAsync(code => code.Id == id);
+
     public async Task<EmailVerificationCode?> FindLatestByEmailAsync(string email) =>
         await dbContext.EmailVerificationCodes
             .Where(code => code.Email == email)
@@ -33,6 +37,31 @@ public class EmailVerificationCodeRepository(AppDbContext dbContext) : IEmailVer
     {
         dbContext.EmailVerificationCodes.Update(verificationCode);
         await dbContext.SaveChangesAsync();
+    }
+
+    public async Task<EmailVerificationCode?> IncrementAttemptCountAsync(int verificationCodeId, int maxAttempts)
+    {
+        var now = DateTime.UtcNow;
+        await dbContext.EmailVerificationCodes
+            .Where(code => code.Id == verificationCodeId
+                && code.Status == EmailVerificationCodeStatus.Pending
+                && code.AttemptCount < maxAttempts)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(code => code.AttemptCount, code => code.AttemptCount + 1)
+                .SetProperty(
+                    code => code.Status,
+                    code => code.AttemptCount + 1 >= maxAttempts
+                        ? EmailVerificationCodeStatus.AttemptLimitExceeded
+                        : code.Status)
+                .SetProperty(
+                    code => code.UnavailableAt,
+                    code => code.AttemptCount + 1 >= maxAttempts
+                        ? now
+                        : code.UnavailableAt));
+
+        return await dbContext.EmailVerificationCodes
+            .AsNoTracking()
+            .FirstOrDefaultAsync(code => code.Id == verificationCodeId);
     }
 
     public async Task RevokeUsableByEmailAsync(string email)
