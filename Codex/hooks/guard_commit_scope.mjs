@@ -1,12 +1,82 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
-import { getString, outputBlock, parsePayload, projectRoot, readStdin } from "./common.mjs";
+import { fileExists, getString, logPath, outputBlock, parsePayload, projectRoot, readStdin, readText } from "./common.mjs";
 
 const raw = await readStdin();
 const payload = parsePayload(raw);
 const command = getString(payload, "command");
 
 if (!/\bgit\s+commit\b/i.test(command)) {
+  process.exit(0);
+}
+
+function extractCommitMessages(commandText) {
+  const messages = [];
+  const pattern = /(?:^|\s)(?:-m|--message)(?:=|\s+)(?:"([^"]*)"|'([^']*)'|([^\s]+))/g;
+  let match;
+  while ((match = pattern.exec(commandText)) !== null) {
+    messages.push(match[1] ?? match[2] ?? match[3] ?? "");
+  }
+
+  return messages;
+}
+
+function latestIssueContext() {
+  const path = logPath("commit_issue_context.json");
+  if (!fileExists(path)) {
+    return undefined;
+  }
+
+  try {
+    return JSON.parse(readText(path));
+  } catch {
+    return undefined;
+  }
+}
+
+function issueRefsFrom(messages) {
+  return messages.flatMap((message) => message.match(/#\d+/g) ?? []);
+}
+
+const commitMessages = extractCommitMessages(command);
+const commitIssueRefs = issueRefsFrom(commitMessages.slice(1));
+const issueContext = latestIssueContext();
+
+if (issueContext?.issueRef) {
+  if (!commitIssueRefs.includes(issueContext.issueRef)) {
+    outputBlock([
+      "[commit-issue-hook] Commit body issue reference does not match the latest user-provided issue reference.",
+      `Expected: ${issueContext.issueRef}`,
+      `Found: ${commitIssueRefs.length > 0 ? commitIssueRefs.join(", ") : "(none)"}`,
+      "Ask the user before committing if the issue/PR number is unclear."
+    ].join("\n"));
+    process.exit(0);
+  }
+
+  const unexpectedRefs = commitIssueRefs.filter((ref) => ref !== issueContext.issueRef);
+  if (unexpectedRefs.length > 0) {
+    outputBlock([
+      "[commit-issue-hook] Commit body includes an issue reference different from the latest user prompt.",
+      `Expected only: ${issueContext.issueRef}`,
+      `Unexpected: ${unexpectedRefs.join(", ")}`,
+      "Ask the user before committing if the issue/PR number is unclear."
+    ].join("\n"));
+    process.exit(0);
+  }
+} else if (issueContext?.noIssueConfirmed) {
+  if (commitIssueRefs.length > 0) {
+    outputBlock([
+      "[commit-issue-hook] The latest user prompt confirmed no related issue, but the commit body includes an issue reference.",
+      `Found: ${commitIssueRefs.join(", ")}`,
+      "Remove the issue reference or ask the user again."
+    ].join("\n"));
+    process.exit(0);
+  }
+} else if (issueContext?.needsIssueConfirmation) {
+  outputBlock([
+    "[commit-issue-hook] The latest commit request did not include an issue/PR number.",
+    "Ask the user for the issue/PR number, or confirm that there is no related issue, before committing."
+  ].join("\n"));
   process.exit(0);
 }
 
