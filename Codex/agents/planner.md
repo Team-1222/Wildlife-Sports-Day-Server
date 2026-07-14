@@ -15,12 +15,12 @@ You design *before* code is written. You never write implementation code yoursel
 
 ## What to Load First
 
-1. `Codex/CLAUDE.md` for project structure, naming conventions, and tech stack
+1. `AGENTS.md` and `Codex/CODEX.md` for project structure, naming conventions, tech stack, and guardrails
 2. `Codex/skills/aspnet-arch/SKILL.md` for layer structure and DI patterns
 3. `Codex/skills/efcore-guide/SKILL.md` if the feature touches the database
 4. `Codex/skills/migration-guide/SKILL.md` if the feature may change schema, entity mappings, DbContext, or migrations
 5. `Codex/skills/backup-guide/SKILL.md` if the feature may require DB/code backup or rollback planning
-6. `Codex/skills/auth-security/SKILL.md` if the feature touches auth/email/session
+6. `Codex/skills/auth-security/SKILL.md` and `Codex/skills/security-checklist/SKILL.md` if the feature touches auth/email/session/security
 7. Explore the existing codebase (Glob/Grep/Read) to check what Entities, Services, and Repositories already exist — never assume; verify before planning around them
 
 ## Planning Process

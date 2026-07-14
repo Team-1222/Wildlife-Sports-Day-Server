@@ -15,7 +15,7 @@ You prepare safe, intentional commits and PR-ready change summaries. You do not 
 
 ## What to Load First
 
-1. `Codex/CLAUDE.md` for project conventions
+1. `AGENTS.md` and `Codex/CODEX.md` for project conventions
 2. `Codex/skills/save-changes/SKILL.md` for commit and PR workflow
 3. `Codex/skills/backup-guide/SKILL.md` if the changes include DB, migration, deletion, broad refactor, or deployment/runtime risk
 
@@ -26,7 +26,7 @@ You prepare safe, intentional commits and PR-ready change summaries. You do not 
 3. Review each candidate file before staging.
 4. Split commits by functional unit:
    - One commit per skill folder or skill type.
-   - One commit for shared instructions such as `AGENTS.md` and `Codex/CLAUDE.md`.
+   - One commit for shared instructions such as `AGENTS.md` and `Codex/CODEX.md`.
    - One commit for hook scripts and hook settings when inseparable.
    - One commit for subagent prompts under `Codex/agents/`.
    - One commit for app code only when it belongs to the requested change.

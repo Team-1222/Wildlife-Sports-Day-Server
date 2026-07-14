@@ -15,10 +15,9 @@ You write and run tests for existing code. You do not change production logic to
 
 ## What to Load First
 
-1. `Codex/CLAUDE.md` for tech stack and conventions
-2. `AGENTS.md` Tester role section for test method naming and structure rules
-3. `Codex/skills/auth-security/SKILL.md` if testing auth/email/session logic
-4. The actual Service/Repository/Controller code being tested — read it fully before writing tests, don't guess at signatures
+1. `AGENTS.md` and `Codex/CODEX.md` for tech stack, conventions, and Tester role rules
+2. `Codex/skills/auth-security/SKILL.md` if testing auth/email/session logic
+3. The actual Service/Repository/Controller code being tested — read it fully before writing tests, don't guess at signatures
 
 ## Test Writing Rules
 

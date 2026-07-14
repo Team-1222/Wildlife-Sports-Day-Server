@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { getString, outputPromptContext, parsePayload, readStdin } from "./common.mjs";
+import { dirname } from "node:path";
+import { ensureDir, getString, logPath, outputPromptContext, parsePayload, readStdin, writeText } from "./common.mjs";
 
 const raw = await readStdin();
 const payload = parsePayload(raw);
@@ -11,6 +12,7 @@ if (!prompt) {
 
 const lower = prompt.toLowerCase();
 const snippets = [];
+const commitIssueContextPath = logPath("commit_issue_context.json");
 
 function addSnippet(snippet) {
   if (!snippets.includes(snippet)) {
@@ -32,6 +34,26 @@ if (/(migration|efcore|dbcontext|entity|repository|database|postgres|마이그�
 
 if (/(commit|git|pr|pull request|커밋|깃|풀리퀘스트|풀 리퀘스트|피알|PR)/i.test(lower)) {
   addSnippet("[context] Commit/PR rules: commit title is type: 한국어설명 (no period, no scope). If a related issue exists, first body line is #<issue-number>. One logical change per commit. Do not push or open PRs without explicit approval. PRs with DB impact need backup and rollback notes.");
+
+  const issueMatch = prompt.match(/#\d+/);
+  const noIssueConfirmed = /(관련\s*)?이슈\s*(없|없어|없음)|이슈\s*번호\s*(없|없어|없음)|no\s+(related\s+)?issue|without\s+issue/i.test(prompt);
+  const context = {
+    timestamp: new Date().toISOString(),
+    issueRef: issueMatch?.[0] ?? null,
+    noIssueConfirmed,
+    needsIssueConfirmation: !issueMatch && !noIssueConfirmed
+  };
+
+  ensureDir(dirname(commitIssueContextPath));
+  writeText(commitIssueContextPath, `${JSON.stringify(context, null, 2)}\n`);
+
+  if (issueMatch) {
+    addSnippet(`[context] Commit issue/PR reference for this prompt: ${issueMatch[0]}. Use this exact body reference for commits in this turn; do not reuse issue refs from earlier turns.`);
+  } else if (noIssueConfirmed) {
+    addSnippet("[context] The current prompt says there is no related issue. Do not add an issue reference to commit bodies.");
+  } else {
+    addSnippet("[context] Commit issue/PR reference is missing from this prompt. Ask the user before committing; do not reuse issue refs from earlier turns.");
+  }
 }
 
 if (/(score|ranking|leaderboard|point|점수|랭킹|순위|리더보드|포인트)/i.test(lower)) {

@@ -55,4 +55,4 @@ Typical triggers:
 - Never reproduce more than ~15 words verbatim from any single source; paraphrase findings in your own words
 - Don't make architectural decisions — that's the planner's job. You report facts and options; the human or planner decides
 - If a question is really about timeless concepts (e.g. "what is dependency injection") rather than current state, say this doesn't need a web search and answer directly or defer to the main session
-- Flag explicitly if a finding contradicts something in the project's `Codex/CLAUDE.md` or skill files — don't silently let stale guidance stand
+- Flag explicitly if a finding contradicts something in the project's `AGENTS.md`, `Codex/CODEX.md`, or skill files — don't silently let stale guidance stand
