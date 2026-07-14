@@ -26,7 +26,7 @@ public class AuthController(IAuthService authService) : ControllerBase
     public async Task<ActionResult<ApiResponse<MessageResponse>>> VerifyEmailCodeAsync(
         [FromBody] VerifyEmailCodeRequest request)
     {
-        var result = await authService.VerifyEmailCodeAsync(request);
+        var result = await authService.VerifyEmailCodeAsync(request, HttpContext);
         return Ok(new ApiResponse<MessageResponse>
         {
             Success = true,
@@ -38,7 +38,7 @@ public class AuthController(IAuthService authService) : ControllerBase
     [HttpPost("register")]
     public async Task<ActionResult<ApiResponse<RegisterResponse>>> RegisterAsync([FromBody] RegisterRequest request)
     {
-        var result = await authService.RegisterAsync(request);
+        var result = await authService.RegisterAsync(request, HttpContext);
         return Ok(new ApiResponse<RegisterResponse>
         {
             Success = true,
