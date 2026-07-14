@@ -99,10 +99,10 @@ All APIs respond with `ApiResponse<T>` wrapper:
 
 ```csharp
 // Success
-{ "success": true, "message": "...", "data": { ... } }
+{ "success": true, "data": { ... } }
 
 // Failure
-{ "success": false, "message": "사용자를 찾을 수 없습니다.", "code": "USER_NOT_FOUND" }
+{ "success": false, "error": { "code": "USER_NOT_FOUND", "message": "사용자를 찾을 수 없습니다." } }
 ```
 
 ### Exception Handling
