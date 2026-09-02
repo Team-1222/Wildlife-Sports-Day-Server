@@ -1,0 +1,278 @@
+name: Server Delivery and Deployment
+
+on:
+  push:
+    branches:
+      - develop
+      - main
+      - 'release/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: server-delivery-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  APP_IMAGE: ghcr.io/team-1222/wildlife-sports-day-server
+  MIGRATOR_IMAGE: ghcr.io/team-1222/wildlife-sports-day-server-migrator
+
+jobs:
+  validate:
+    name: Validate application
+    uses: ./.github/workflows/ci.yml
+
+  deliver-develop:
+    name: Publish development images
+    if: github.ref == 'refs/heads/develop'
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and publish application image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          target: app
+          platforms: linux/amd64
+          push: true
+          build-args: BUILD_REVISION=${{ github.sha }}
+          tags: |
+            ${{ env.APP_IMAGE }}:dev-${{ github.sha }}
+            ${{ env.APP_IMAGE }}:develop
+          cache-from: type=gha,scope=develop-app
+          cache-to: type=gha,mode=max,scope=develop-app
+
+      - name: Build and publish migrator image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          target: migrator
+          platforms: linux/amd64
+          push: true
+          build-args: BUILD_REVISION=${{ github.sha }}
+          tags: |
+            ${{ env.MIGRATOR_IMAGE }}:dev-${{ github.sha }}
+            ${{ env.MIGRATOR_IMAGE }}:develop
+          cache-from: type=gha,scope=develop-migrator
+          cache-to: type=gha,mode=max,scope=develop-migrator
+
+  rehearse-release:
+    name: Rehearse container deployment
+    if: startsWith(github.ref, 'refs/heads/release/')
+    needs: validate
+    runs-on: ubuntu-latest
+    env:
+      COMPOSE_PROJECT_NAME: wildlife-rehearsal-${{ github.run_id }}-${{ github.run_attempt }}
+      APP_IMAGE_LOCAL: wildlife-app:rehearsal-${{ github.sha }}
+      MIGRATOR_IMAGE_LOCAL: wildlife-migrator:rehearsal-${{ github.sha }}
+      POSTGRES_DB: wildlife_rehearsal
+      POSTGRES_USER: wildlife_rehearsal
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build application image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          target: app
+          platforms: linux/amd64
+          load: true
+          build-args: BUILD_REVISION=${{ github.sha }}
+          tags: ${{ env.APP_IMAGE_LOCAL }}
+          cache-from: type=gha,scope=rehearsal-app
+          cache-to: type=gha,mode=max,scope=rehearsal-app
+
+      - name: Build migrator image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          target: migrator
+          platforms: linux/amd64
+          load: true
+          build-args: BUILD_REVISION=${{ github.sha }}
+          tags: ${{ env.MIGRATOR_IMAGE_LOCAL }}
+          cache-from: type=gha,scope=rehearsal-migrator
+          cache-to: type=gha,mode=max,scope=rehearsal-migrator
+
+      - name: Validate rehearsal Compose
+        env:
+          APP_IMAGE: ${{ env.APP_IMAGE_LOCAL }}
+          MIGRATOR_IMAGE: ${{ env.MIGRATOR_IMAGE_LOCAL }}
+        run: docker compose -f deploy/compose.rehearsal.yml config --quiet
+
+      - name: Start rehearsal database
+        env:
+          APP_IMAGE: ${{ env.APP_IMAGE_LOCAL }}
+          MIGRATOR_IMAGE: ${{ env.MIGRATOR_IMAGE_LOCAL }}
+        run: docker compose -f deploy/compose.rehearsal.yml up -d --wait db
+
+      - name: Apply migrations twice
+        env:
+          APP_IMAGE: ${{ env.APP_IMAGE_LOCAL }}
+          MIGRATOR_IMAGE: ${{ env.MIGRATOR_IMAGE_LOCAL }}
+        run: |
+          docker compose -f deploy/compose.rehearsal.yml run --rm migrator
+          docker compose -f deploy/compose.rehearsal.yml run --rm migrator
+
+      - name: Start rehearsal application
+        env:
+          APP_IMAGE: ${{ env.APP_IMAGE_LOCAL }}
+          MIGRATOR_IMAGE: ${{ env.MIGRATOR_IMAGE_LOCAL }}
+        run: docker compose -f deploy/compose.rehearsal.yml up -d app caddy
+
+      - name: Verify health response
+        run: |
+          response="$(curl --fail --silent --show-error --retry 20 --retry-delay 3 --retry-all-errors http://127.0.0.1:18080/api/health)"
+          jq -e '.success == true and .data.status == "Healthy"' <<< "${response}"
+
+      - name: Print rehearsal logs on failure
+        if: failure()
+        env:
+          APP_IMAGE: ${{ env.APP_IMAGE_LOCAL }}
+          MIGRATOR_IMAGE: ${{ env.MIGRATOR_IMAGE_LOCAL }}
+        run: docker compose -f deploy/compose.rehearsal.yml logs --no-color
+
+      - name: Remove rehearsal resources
+        if: always()
+        env:
+          APP_IMAGE: ${{ env.APP_IMAGE_LOCAL }}
+          MIGRATOR_IMAGE: ${{ env.MIGRATOR_IMAGE_LOCAL }}
+        run: docker compose -f deploy/compose.rehearsal.yml down --volumes --remove-orphans
+
+  publish-production:
+    name: Publish production images
+    if: github.ref == 'refs/heads/main'
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      app-digest: ${{ steps.build-app.outputs.digest }}
+      migrator-digest: ${{ steps.build-migrator.outputs.digest }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and publish application image
+        id: build-app
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          target: app
+          platforms: linux/amd64
+          push: true
+          build-args: BUILD_REVISION=${{ github.sha }}
+          tags: |
+            ${{ env.APP_IMAGE }}:sha-${{ github.sha }}
+            ${{ env.APP_IMAGE }}:main
+          cache-from: type=gha,scope=production-app
+          cache-to: type=gha,mode=max,scope=production-app
+
+      - name: Build and publish migrator image
+        id: build-migrator
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          target: migrator
+          platforms: linux/amd64
+          push: true
+          build-args: BUILD_REVISION=${{ github.sha }}
+          tags: |
+            ${{ env.MIGRATOR_IMAGE }}:sha-${{ github.sha }}
+            ${{ env.MIGRATOR_IMAGE }}:main
+          cache-from: type=gha,scope=production-migrator
+          cache-to: type=gha,mode=max,scope=production-migrator
+
+  deploy-production:
+    name: Deploy production to WSL over Tailscale SSH
+    if: github.ref == 'refs/heads/main'
+    needs:
+      - validate
+      - publish-production
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:wildlife-ci
+          ping: ${{ vars.TS_HOST }}
+
+      - name: Create deployment request
+        env:
+          APP_DIGEST: ${{ needs.publish-production.outputs.app-digest }}
+          MIGRATOR_DIGEST: ${{ needs.publish-production.outputs.migrator-digest }}
+        run: |
+          umask 077
+          {
+            printf 'RELEASE_ID=%s\n' "${GITHUB_SHA}"
+            printf 'APP_IMAGE=%s@%s\n' "${APP_IMAGE}" "${APP_DIGEST}"
+            printf 'MIGRATOR_IMAGE=%s@%s\n' "${MIGRATOR_IMAGE}" "${MIGRATOR_DIGEST}"
+          } > deployment-request.env
+
+      - name: Upload deployment request
+        env:
+          DEPLOY_HOST: ${{ vars.TS_HOST }}
+          DEPLOY_USER: ${{ vars.TS_SSH_USER }}
+        run: |
+          test -n "${DEPLOY_HOST}"
+          test -n "${DEPLOY_USER}"
+          scp -o BatchMode=yes -o StrictHostKeyChecking=yes -- \
+            deployment-request.env \
+            "${DEPLOY_USER}@${DEPLOY_HOST}:/var/lib/wildlife/inbox/deployment-request.env"
+
+      - name: Deploy application
+        env:
+          DEPLOY_HOST: ${{ vars.TS_HOST }}
+          DEPLOY_USER: ${{ vars.TS_SSH_USER }}
+        run: |
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -- \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            'sudo -n /usr/local/sbin/wildlife-deploy apply'
