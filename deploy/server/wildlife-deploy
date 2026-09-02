@@ -1,0 +1,352 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly COMPOSE_FILE="/opt/wildlife/infra/compose.production.yml"
+readonly REQUEST_FILE="/var/lib/wildlife/inbox/deployment-request.env"
+readonly STATE_DIR="/opt/wildlife/state"
+readonly CURRENT_FILE="${STATE_DIR}/current.env"
+readonly PREVIOUS_FILE="${STATE_DIR}/previous.env"
+readonly BACKUP_DIR="/var/backups/wildlife"
+readonly LOCK_FILE="/run/lock/wildlife-deploy.lock"
+readonly APP_IMAGE_PATTERN='^ghcr\.io/team-1222/wildlife-sports-day-server@sha256:[0-9a-f]{64}$'
+readonly MIGRATOR_IMAGE_PATTERN='^ghcr\.io/team-1222/wildlife-sports-day-server-migrator@sha256:[0-9a-f]{64}$'
+
+release_id=""
+app_image=""
+migrator_image=""
+
+log() {
+    printf '[wildlife-deploy] %s\n' "$*"
+}
+
+fail() {
+    printf '[wildlife-deploy] ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+require_root() {
+    [[ "${EUID}" -eq 0 ]] || fail "This command must run as root."
+}
+
+require_file() {
+    local path="$1"
+    [[ -f "${path}" ]] || fail "Required file is missing: ${path}"
+}
+
+require_root_secret_file() {
+    local path="$1"
+    local owner
+    local permissions
+
+    require_file "${path}"
+    owner="$(stat -c '%U' -- "${path}")"
+    permissions="$(stat -c '%a' -- "${path}")"
+    [[ "${owner}" == "root" ]] || fail "Secret file must be owned by root: ${path}"
+    [[ "${permissions}" == "600" ]] || fail "Secret file must use mode 600: ${path}"
+}
+
+load_manifest() {
+    local path="$1"
+    local key
+    local value
+    local seen_release=false
+    local seen_app=false
+    local seen_migrator=false
+
+    release_id=""
+    app_image=""
+    migrator_image=""
+    require_file "${path}"
+
+    while IFS='=' read -r key value || [[ -n "${key}" ]]; do
+        [[ -n "${key}" ]] || continue
+        case "${key}" in
+            RELEASE_ID)
+                [[ "${seen_release}" == false ]] || fail "Duplicate RELEASE_ID in ${path}"
+                release_id="${value}"
+                seen_release=true
+                ;;
+            APP_IMAGE)
+                [[ "${seen_app}" == false ]] || fail "Duplicate APP_IMAGE in ${path}"
+                app_image="${value}"
+                seen_app=true
+                ;;
+            MIGRATOR_IMAGE)
+                [[ "${seen_migrator}" == false ]] || fail "Duplicate MIGRATOR_IMAGE in ${path}"
+                migrator_image="${value}"
+                seen_migrator=true
+                ;;
+            *)
+                fail "Unexpected key in ${path}: ${key}"
+                ;;
+        esac
+    done < "${path}"
+
+    [[ "${release_id}" =~ ^[0-9a-f]{40}$ ]] || fail "Invalid release identifier."
+    [[ "${app_image}" =~ ${APP_IMAGE_PATTERN} ]] || fail "Invalid application image reference."
+    [[ "${migrator_image}" =~ ${MIGRATOR_IMAGE_PATTERN} ]] || fail "Invalid migrator image reference."
+}
+
+write_manifest() {
+    local path="$1"
+    local temp_path
+    temp_path="$(mktemp "${STATE_DIR}/.manifest.XXXXXX")"
+    chmod 600 "${temp_path}"
+    {
+        printf 'RELEASE_ID=%s\n' "${release_id}"
+        printf 'APP_IMAGE=%s\n' "${app_image}"
+        printf 'MIGRATOR_IMAGE=%s\n' "${migrator_image}"
+    } > "${temp_path}"
+    mv -f -- "${temp_path}" "${path}"
+}
+
+compose_with() {
+    local manifest="$1"
+    shift
+    docker compose --env-file "${manifest}" -f "${COMPOSE_FILE}" "$@"
+}
+
+read_app_domain() {
+    local domain
+    local domain_count
+
+    domain_count="$(grep -c '^APP_DOMAIN=' /etc/wildlife/caddy.env || true)"
+    [[ "${domain_count}" -eq 1 ]] || fail "caddy.env must contain exactly one APP_DOMAIN entry."
+    domain="$(sed -n 's/^APP_DOMAIN=//p' /etc/wildlife/caddy.env)"
+    [[ "${domain}" =~ ^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?[.])+[A-Za-z]{2,63}$ ]] \
+        || fail "APP_DOMAIN is missing or invalid."
+    printf '%s' "${domain}"
+}
+
+wait_for_database() {
+    local manifest="$1"
+    local container_id
+    local status
+
+    container_id="$(compose_with "${manifest}" ps -q db)"
+    [[ -n "${container_id}" ]] || fail "Database container was not created."
+
+    for _ in {1..30}; do
+        status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' "${container_id}")"
+        if [[ "${status}" == "healthy" ]]; then
+            return 0
+        fi
+        if [[ "${status}" == "unhealthy" ]]; then
+            return 1
+        fi
+        sleep 3
+    done
+
+    return 1
+}
+
+create_database_backup() {
+    local manifest="$1"
+    local timestamp
+    local temporary_backup
+    local final_backup
+
+    timestamp="$(date -u '+%Y%m%dT%H%M%SZ')"
+    temporary_backup="$(mktemp "${BACKUP_DIR}/.wildlife-${timestamp}.XXXXXX")"
+    final_backup="${BACKUP_DIR}/wildlife-${timestamp}-${release_id}.dump"
+    chmod 600 "${temporary_backup}"
+
+    # Variables expand inside the database container.
+    # shellcheck disable=SC2016
+    if ! compose_with "${manifest}" exec -T db sh -c \
+        'PGPASSWORD="$POSTGRES_PASSWORD" pg_dump --format=custom --username="$POSTGRES_USER" --dbname="$POSTGRES_DB"' \
+        > "${temporary_backup}"; then
+        rm -f -- "${temporary_backup}"
+        fail "Database backup failed."
+    fi
+
+    if ! compose_with "${manifest}" exec -T db pg_restore --list < "${temporary_backup}" > /dev/null; then
+        rm -f -- "${temporary_backup}"
+        fail "Database backup verification failed."
+    fi
+
+    mv -- "${temporary_backup}" "${final_backup}"
+    log "Created verified database backup: ${final_backup}"
+}
+
+prune_database_backups() {
+    local backup
+    local -a expired_backups=()
+
+    mapfile -t expired_backups < <(
+        find "${BACKUP_DIR}" -maxdepth 1 -type f -name 'wildlife-*.dump' -printf '%T@ %p\n' \
+            | sort -nr \
+            | tail -n +8 \
+            | cut -d' ' -f2-
+    )
+
+    for backup in "${expired_backups[@]}"; do
+        [[ "${backup}" == "${BACKUP_DIR}/"wildlife-*.dump ]] \
+            || fail "Refused to remove an unexpected backup path."
+        rm -f -- "${backup}"
+    done
+}
+
+wait_for_health_url() {
+    local health_url="$1"
+    local response
+
+    for _ in {1..40}; do
+        if response="$(curl --fail --silent --show-error --max-time 10 "${health_url}" 2>/dev/null)"; then
+            if grep -q '"success":true' <<< "${response}" \
+                && grep -q '"status":"Healthy"' <<< "${response}"; then
+                return 0
+            fi
+        fi
+        sleep 3
+    done
+
+    return 1
+}
+
+verify_application() {
+    local public_host="$1"
+
+    if ! wait_for_health_url "http://127.0.0.1:18080/api/health"; then
+        log "The local application health check failed."
+        return 1
+    fi
+    if ! wait_for_health_url "https://${public_host}/api/health"; then
+        log "The public DuckDNS health check failed."
+        return 1
+    fi
+
+    return 0
+}
+
+restore_previous_after_failure() {
+    local public_host="$1"
+
+    if [[ ! -f "${PREVIOUS_FILE}" ]]; then
+        log "No previous release exists; stopping the failed application."
+        compose_with "${CURRENT_FILE}" stop app caddy || true
+        return 1
+    fi
+
+    cp -- "${PREVIOUS_FILE}" "${CURRENT_FILE}"
+    chmod 600 "${CURRENT_FILE}"
+    compose_with "${CURRENT_FILE}" pull app
+    compose_with "${CURRENT_FILE}" up -d --no-deps app caddy
+
+    if verify_application "${public_host}"; then
+        log "Restored the previous application image. Database migrations were not reverted."
+        return 0
+    fi
+
+    log "Previous application health check also failed. Review the verified database backup before manual restore."
+    return 1
+}
+
+apply_release() {
+    local public_host
+    local candidate_file
+
+    require_file "${REQUEST_FILE}"
+    [[ "$(stat -c '%U' -- "${REQUEST_FILE}")" == "deploy" ]] \
+        || fail "Deployment request must be owned by deploy."
+    load_manifest "${REQUEST_FILE}"
+    rm -f -- "${REQUEST_FILE}"
+
+    candidate_file="${STATE_DIR}/candidate.env"
+    write_manifest "${candidate_file}"
+    public_host="$(read_app_domain)"
+
+    log "Pulling immutable release images."
+    compose_with "${candidate_file}" pull db app migrator caddy
+    compose_with "${candidate_file}" up -d db
+    wait_for_database "${candidate_file}" || fail "Database did not become healthy."
+
+    create_database_backup "${candidate_file}"
+
+    log "Applying committed EF Core migrations."
+    compose_with "${candidate_file}" run --rm --no-deps migrator
+
+    if [[ -f "${CURRENT_FILE}" ]]; then
+        cp -- "${CURRENT_FILE}" "${PREVIOUS_FILE}"
+        chmod 600 "${PREVIOUS_FILE}"
+    fi
+    mv -f -- "${candidate_file}" "${CURRENT_FILE}"
+    chmod 600 "${CURRENT_FILE}"
+
+    log "Starting the candidate application."
+    compose_with "${CURRENT_FILE}" up -d --no-deps app caddy
+
+    if ! verify_application "${public_host}"; then
+        log "Candidate health check failed; starting automatic application rollback."
+        restore_previous_after_failure "${public_host}" || true
+        fail "Deployment failed health verification."
+    fi
+
+    prune_database_backups
+    log "Deployment completed for release ${release_id}."
+}
+
+rollback_release() {
+    local public_host
+    local rollback_file
+    local failed_current_file
+
+    require_file "${CURRENT_FILE}"
+    require_file "${PREVIOUS_FILE}"
+    public_host="$(read_app_domain)"
+    rollback_file="$(mktemp "${STATE_DIR}/.rollback.XXXXXX")"
+    failed_current_file="$(mktemp "${STATE_DIR}/.current.XXXXXX")"
+
+    cp -- "${CURRENT_FILE}" "${failed_current_file}"
+    cp -- "${PREVIOUS_FILE}" "${rollback_file}"
+    chmod 600 "${failed_current_file}" "${rollback_file}"
+    load_manifest "${rollback_file}"
+
+    mv -f -- "${rollback_file}" "${CURRENT_FILE}"
+    mv -f -- "${failed_current_file}" "${PREVIOUS_FILE}"
+    compose_with "${CURRENT_FILE}" pull app
+    compose_with "${CURRENT_FILE}" up -d --no-deps app caddy
+
+    if verify_application "${public_host}"; then
+        log "Manual application rollback completed for release ${release_id}."
+        return 0
+    fi
+
+    log "Rollback target failed health verification; restoring the original application state."
+    rollback_file="$(mktemp "${STATE_DIR}/.rollback-restore.XXXXXX")"
+    cp -- "${CURRENT_FILE}" "${rollback_file}"
+    cp -- "${PREVIOUS_FILE}" "${CURRENT_FILE}"
+    mv -f -- "${rollback_file}" "${PREVIOUS_FILE}"
+    chmod 600 "${CURRENT_FILE}" "${PREVIOUS_FILE}"
+    compose_with "${CURRENT_FILE}" up -d --no-deps app caddy
+    fail "Manual rollback failed. Database state was not changed."
+}
+
+main() {
+    local action="${1:-}"
+
+    require_root
+    [[ "${action}" == "apply" || "${action}" == "rollback" ]] \
+        || fail "Usage: wildlife-deploy apply|rollback"
+    [[ "$#" -eq 1 ]] || fail "Unexpected arguments were provided."
+
+    require_file "${COMPOSE_FILE}"
+    require_root_secret_file /etc/wildlife/db.env
+    require_root_secret_file /etc/wildlife/app.env
+    require_root_secret_file /etc/wildlife/caddy.env
+    install -d -o root -g root -m 0700 "${STATE_DIR}" "${BACKUP_DIR}"
+
+    exec 9> "${LOCK_FILE}"
+    flock -n 9 || fail "Another deployment is already running."
+
+    case "${action}" in
+        apply)
+            apply_release
+            ;;
+        rollback)
+            rollback_release
+            ;;
+    esac
+}
+
+main "$@"

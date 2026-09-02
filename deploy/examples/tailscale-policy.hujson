@@ -1,0 +1,23 @@
+{
+  "tagOwners": {
+    "tag:wildlife-ci": ["autogroup:admin"],
+    "tag:wildlife-prod": ["autogroup:admin"]
+  },
+
+  "grants": [
+    {
+      "src": ["tag:wildlife-ci"],
+      "dst": ["tag:wildlife-prod"],
+      "ip": ["tcp:22"]
+    }
+  ],
+
+  "ssh": [
+    {
+      "action": "accept",
+      "src": ["tag:wildlife-ci"],
+      "dst": ["tag:wildlife-prod"],
+      "users": ["deploy"]
+    }
+  ]
+}
