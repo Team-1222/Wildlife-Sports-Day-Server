@@ -1,0 +1,2 @@
+deploy ALL=(root) NOPASSWD: /usr/local/sbin/wildlife-deploy apply
+deploy ALL=(root) NOPASSWD: /usr/local/sbin/wildlife-deploy rollback

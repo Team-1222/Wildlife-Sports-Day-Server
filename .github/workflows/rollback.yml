@@ -1,0 +1,43 @@
+name: Roll Back Production
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: server-delivery-refs/heads/main
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    name: Restore previous application image on WSL
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Require main branch
+        run: test "${GITHUB_REF}" = "refs/heads/main"
+
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:wildlife-ci
+          ping: ${{ vars.TS_HOST }}
+
+      - name: Roll back application
+        env:
+          DEPLOY_HOST: ${{ vars.TS_HOST }}
+          DEPLOY_USER: ${{ vars.TS_SSH_USER }}
+        run: |
+          test -n "${DEPLOY_HOST}"
+          test -n "${DEPLOY_USER}"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -- \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            'sudo -n /usr/local/sbin/wildlife-deploy rollback'
