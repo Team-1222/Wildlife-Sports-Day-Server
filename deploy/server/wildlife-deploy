@@ -33,7 +33,7 @@ require_file() {
     [[ -f "${path}" ]] || fail "Required file is missing: ${path}"
 }
 
-require_root_secret_file() {
+require_root_environment_file() {
     local path="$1"
     local owner
     local permissions
@@ -41,8 +41,8 @@ require_root_secret_file() {
     require_file "${path}"
     owner="$(stat -c '%U' -- "${path}")"
     permissions="$(stat -c '%a' -- "${path}")"
-    [[ "${owner}" == "root" ]] || fail "Secret file must be owned by root: ${path}"
-    [[ "${permissions}" == "600" ]] || fail "Secret file must use mode 600: ${path}"
+    [[ "${owner}" == "root" ]] || fail "Environment file must be owned by root: ${path}"
+    [[ "${permissions}" == "600" ]] || fail "Environment file must use mode 600: ${path}"
 }
 
 load_manifest() {
@@ -106,16 +106,16 @@ compose_with() {
     docker compose --env-file "${manifest}" -f "${COMPOSE_FILE}" "$@"
 }
 
-read_app_domain() {
-    local domain
-    local domain_count
+read_public_host() {
+    local public_host
+    local public_host_count
 
-    domain_count="$(grep -c '^APP_DOMAIN=' /etc/wildlife/caddy.env || true)"
-    [[ "${domain_count}" -eq 1 ]] || fail "caddy.env must contain exactly one APP_DOMAIN entry."
-    domain="$(sed -n 's/^APP_DOMAIN=//p' /etc/wildlife/caddy.env)"
-    [[ "${domain}" =~ ^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?[.])+[A-Za-z]{2,63}$ ]] \
-        || fail "APP_DOMAIN is missing or invalid."
-    printf '%s' "${domain}"
+    public_host_count="$(grep -c '^PUBLIC_HOST=' /etc/wildlife/deploy.env || true)"
+    [[ "${public_host_count}" -eq 1 ]] || fail "deploy.env must contain exactly one PUBLIC_HOST entry."
+    public_host="$(sed -n 's/^PUBLIC_HOST=//p' /etc/wildlife/deploy.env)"
+    [[ "${public_host}" =~ ^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?[.])+[A-Za-z]{2,63}$ ]] \
+        || fail "PUBLIC_HOST is missing or invalid."
+    printf '%s' "${public_host}"
 }
 
 wait_for_database() {
@@ -212,7 +212,7 @@ verify_application() {
         return 1
     fi
     if ! wait_for_health_url "https://${public_host}/api/health"; then
-        log "The public DuckDNS health check failed."
+        log "The public GSMVS health check failed."
         return 1
     fi
 
@@ -254,7 +254,7 @@ apply_release() {
 
     candidate_file="${STATE_DIR}/candidate.env"
     write_manifest "${candidate_file}"
-    public_host="$(read_app_domain)"
+    public_host="$(read_public_host)"
 
     log "Pulling immutable release images."
     compose_with "${candidate_file}" pull db app migrator caddy
@@ -293,7 +293,7 @@ rollback_release() {
 
     require_file "${CURRENT_FILE}"
     require_file "${PREVIOUS_FILE}"
-    public_host="$(read_app_domain)"
+    public_host="$(read_public_host)"
     rollback_file="$(mktemp "${STATE_DIR}/.rollback.XXXXXX")"
     failed_current_file="$(mktemp "${STATE_DIR}/.current.XXXXXX")"
 
@@ -331,9 +331,9 @@ main() {
     [[ "$#" -eq 1 ]] || fail "Unexpected arguments were provided."
 
     require_file "${COMPOSE_FILE}"
-    require_root_secret_file /etc/wildlife/db.env
-    require_root_secret_file /etc/wildlife/app.env
-    require_root_secret_file /etc/wildlife/caddy.env
+    require_root_environment_file /etc/wildlife/db.env
+    require_root_environment_file /etc/wildlife/app.env
+    require_root_environment_file /etc/wildlife/deploy.env
     install -d -o root -g root -m 0700 "${STATE_DIR}" "${BACKUP_DIR}"
 
     exec 9> "${LOCK_FILE}"

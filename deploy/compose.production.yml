@@ -65,21 +65,17 @@ services:
     image: caddy:2.11.4-alpine
     depends_on:
       - app
-    env_file:
-      - /etc/wildlife/caddy.env
     ports:
-      - "127.0.0.1:18080:8080"
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
+      - "0.0.0.0:18080:8080"
     volumes:
       - /opt/wildlife/infra/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
-      - caddy-config:/config
     networks:
       - edge
     restart: unless-stopped
     read_only: true
+    tmpfs:
+      - /data:rw,noexec,nosuid,size=16m
+      - /config:rw,noexec,nosuid,size=16m
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -97,7 +93,3 @@ volumes:
     name: wildlife-postgres-data
   app-dataprotection:
     name: wildlife-app-dataprotection
-  caddy-data:
-    name: wildlife-caddy-data
-  caddy-config:
-    name: wildlife-caddy-config

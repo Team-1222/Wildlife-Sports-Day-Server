@@ -59,8 +59,6 @@ services:
     image: caddy:2.11.4-alpine
     depends_on:
       - app
-    environment:
-      APP_DOMAIN: localhost
     ports:
       - "127.0.0.1:${REHEARSAL_PORT:-18080}:8080"
     volumes:

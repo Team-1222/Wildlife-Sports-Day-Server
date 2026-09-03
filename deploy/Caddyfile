@@ -19,12 +19,7 @@
 	}
 }
 
-# Loopback-only health endpoint published by Compose on 127.0.0.1:18080.
+# GSMVS terminates public HTTPS and forwards HTTP traffic to this listener.
 http://:8080 {
-	import wildlife_proxy
-}
-
-# Public endpoint. Caddy obtains and renews the TLS certificate automatically.
-{$APP_DOMAIN} {
 	import wildlife_proxy
 }

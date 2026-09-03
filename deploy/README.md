@@ -1,15 +1,15 @@
-# WSL + DuckDNS 운영 배포 가이드
+# WSL + GSMVS 운영 배포 가이드
 
 ## 구성
 
 운영 환경은 별도 VPS 없이 Windows PC의 WSL 2 Ubuntu x86_64에서 실행합니다. ASP.NET Core, PostgreSQL, Caddy는 Docker 컨테이너로 실행합니다.
 
 - GitHub Actions → Tailscale SSH → WSL의 `deploy` 사용자
-- 인터넷 → `wildlife-sports.duckdns.org` → 공유기 포트포워딩 → Caddy
+- 인터넷 HTTPS → GSMVS → 서버 TCP 18080 → Caddy
 - Caddy → Docker 내부 ASP.NET 앱
 - ASP.NET 앱과 migrator → Docker 내부 PostgreSQL `db:5432`
 
-외부에는 Caddy의 TCP 80/443만 공개합니다. PostgreSQL 5432, 앱 8080, 로컬 검증 포트 18080, SSH 22는 공유기에서 포워딩하지 않습니다.
+GSMVS가 와일드카드 인증서로 공개 HTTPS를 종료하고 서버의 TCP 18080에 HTTP로 전달합니다. PostgreSQL 5432, 앱 8080, SSH 22와 Caddy의 80/443은 외부에 공개하지 않습니다.
 
 | 브랜치 | 동작 | WSL 변경 |
 | --- | --- | --- |
@@ -23,9 +23,8 @@
 
 - Windows PC가 종료·재부팅·절전되면 게임 서버도 중단됩니다.
 - Docker Desktop과 WSL이 실행 중일 때만 GitHub Actions가 배포할 수 있습니다.
-- DuckDNS는 DNS만 제공하므로 서버 트래픽을 대신 중계하지 않습니다.
-- 인터넷 회선에 외부 접속 가능한 공인 IPv4가 필요합니다. CGNAT 회선에서는 공유기 포트포워딩만으로 공개할 수 없습니다.
-- 공인 IP가 바뀌면 DuckDNS 레코드도 갱신해야 합니다.
+- GSMVS 서브도메인과 내부 포트 연결이 활성화되어 있어야 공개 요청이 서버에 도달합니다.
+- Caddy는 내부 HTTP 리버스 프록시로만 사용하며 공개 인증서를 발급하지 않습니다.
 - 이 구성은 무료 소규모 운영용이며 고가용성 환경이 아닙니다.
 
 ## 1. Windows와 WSL 확인
@@ -95,7 +94,7 @@ bootstrap은 다음 항목을 설치합니다.
 - `/etc/wildlife`: 권한 600의 운영 환경 파일
 - `/var/backups/wildlife`: 저장소 밖 DB dump 디렉터리
 
-이미 존재하는 `/etc/wildlife/db.env`, `app.env`, `caddy.env`는 덮어쓰지 않습니다.
+이미 존재하는 `/etc/wildlife/db.env`, `app.env`, `deploy.env`는 덮어쓰지 않습니다.
 
 ## 4. 운영 환경변수 설정
 
@@ -119,10 +118,10 @@ Gmail__AppPassword=
 
 연결 문자열은 호스트 `db`, 포트 `5432`, 그리고 `db.env`와 동일한 DB 이름·사용자·비밀번호로 구성합니다. 공개 URL이나 `localhost`를 DB 호스트로 사용하지 않습니다.
 
-`/etc/wildlife/caddy.env`:
+`/etc/wildlife/deploy.env`:
 
 ```env
-APP_DOMAIN=wildlife-sports.duckdns.org
+PUBLIC_HOST=wildlife-sports-day.https.gsmsv.site
 ```
 
 권한을 확인합니다.
@@ -131,7 +130,7 @@ APP_DOMAIN=wildlife-sports.duckdns.org
 sudo stat -c '%U:%G %a %n' /etc/wildlife/*.env
 ```
 
-세 파일은 모두 `root:root 600`이어야 합니다.
+세 파일은 모두 `root:root 600`이어야 합니다. `deploy.env`의 공개 호스트명은 시크릿이 아니지만 배포 설정의 무단 변경을 막기 위해 동일한 권한을 사용합니다.
 
 ## 5. 비공개 GHCR 로그인
 
@@ -145,32 +144,30 @@ unset GHCR_READ_TOKEN
 
 `Login Succeeded`가 나오면 완료입니다. root의 Docker 인증 파일에 저장되는 이유는 root 소유 배포 명령이 GHCR 이미지를 pull하기 때문입니다.
 
-## 6. DuckDNS와 공유기 설정
+## 6. GSMVS 도메인과 포트 설정
 
-DuckDNS의 `wildlife-sports.duckdns.org` 레코드를 현재 인터넷 회선의 공인 IPv4로 갱신합니다. 공인 IP가 동적으로 바뀌는 회선이라면 다음 중 하나로 자동 갱신합니다.
-
-- 공유기가 DuckDNS 또는 사용자 정의 DDNS 갱신을 지원하면 공유기에 설정
-- 지원하지 않으면 DuckDNS가 제공하는 Linux 갱신 스크립트나 별도 DDNS 클라이언트 사용
-
-DuckDNS 토큰은 저장소, GitHub Actions 로그, Caddyfile에 기록하지 않습니다.
-
-공유기에서 Windows PC의 고정 LAN IPv4 또는 DHCP 예약 주소로 다음 포트를 전달합니다.
+GSMVS에서 HTTPS 서브도메인을 추가하고 다음 값으로 서버에 연결합니다.
 
 ```text
-WAN TCP 80  → Windows PC TCP 80
-WAN TCP 443 → Windows PC TCP 443
-WAN UDP 443 → Windows PC UDP 443  (HTTP/3, 선택)
+공개 주소: wildlife-sports-day.https.gsmsv.site
+출발 IP: 0.0.0.0/0
+내부 IP: GSMVS 관리 화면에 표시되는 서버 내부 IP
+내부 포트: 18080
+내부 프로토콜: HTTP
 ```
 
-Windows 방화벽에서도 인바운드 TCP 80/443과 선택적으로 UDP 443을 허용합니다. TCP 22, 5432, 8080, 18080은 열지 않습니다.
+Compose는 서버의 모든 인터페이스에서 TCP 18080을 받고 Caddy 컨테이너의 8080으로 전달합니다. GSMVS가 공개 TLS를 처리하므로 Caddy의 호스트 TCP 80/443과 UDP 443은 열지 않습니다.
 
-포트포워딩을 마친 뒤 휴대전화 Wi-Fi를 끄고 모바일 데이터에서 다음 주소가 열리는지 확인합니다. 같은 LAN에서는 공유기의 NAT loopback 지원 여부 때문에 잘못 실패할 수 있습니다.
+Windows 방화벽에서 GSMVS 연결에 필요한 인바운드 TCP 18080을 허용합니다. 가능하면 GSMVS가 제공하는 프록시 원본 대역으로 제한하고, 공유기나 다른 장비에서 5432, 8080, 22를 공개하지 않습니다.
 
-```text
-https://wildlife-sports.duckdns.org/api/health
+먼저 WSL 내부 상태를 확인한 뒤 공개 주소를 확인합니다.
+
+```bash
+curl --fail --silent http://127.0.0.1:18080/api/health
+curl --fail --silent https://wildlife-sports-day.https.gsmsv.site/api/health
 ```
 
-Caddy는 최초 기동 시 이 도메인의 공개 TLS 인증서를 자동 발급하고 `/data` 볼륨에 보존합니다. 인증서 발급을 위해 DuckDNS가 올바른 공인 IP를 가리키고 외부 TCP 80 또는 443이 Caddy까지 도달해야 합니다.
+로컬 요청은 성공하지만 공개 요청이 502이면 GSMVS의 내부 포트가 18080인지, 운영 Compose가 `0.0.0.0:18080:8080`으로 설치되었는지, Windows 방화벽이 TCP 18080을 허용하는지 확인합니다.
 
 ## 7. Tailscale 정책
 
@@ -214,7 +211,7 @@ wsl --distribution Ubuntu --exec /bin/sleep infinity
 ```bash
 systemctl status tailscaled
 sudo docker compose --env-file /opt/wildlife/state/current.env -f /opt/wildlife/infra/compose.production.yml ps
-curl --fail --silent https://wildlife-sports.duckdns.org/api/health
+curl --fail --silent https://wildlife-sports-day.https.gsmsv.site/api/health
 ```
 
 ## 배포 동작
@@ -226,7 +223,7 @@ curl --fail --silent https://wildlife-sports.duckdns.org/api/health
 3. custom-format dump 생성과 `pg_restore --list` 검증
 4. self-contained EF migration bundle 실행
 5. 새 app/Caddy 기동
-6. loopback 및 DuckDNS 공개 HTTPS `/api/health` 확인
+6. loopback 및 GSMVS 공개 HTTPS `/api/health` 확인
 7. 실패 시 이전 app digest 자동 복구
 
 최초 배포에서는 `POSTGRES_DB` 값으로 빈 데이터베이스를 만든 뒤 커밋된 EF Core migration을 적용해 스키마를 생성합니다.
