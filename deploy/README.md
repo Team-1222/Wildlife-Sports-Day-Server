@@ -14,8 +14,8 @@ GSMVS가 와일드카드 인증서로 공개 HTTPS를 종료하고 서버의 TCP
 | 브랜치 | 동작 | WSL 변경 |
 | --- | --- | --- |
 | `develop` | CI 후 app/migrator 개발 이미지를 GHCR에 게시 | 없음 |
-| `release/**` | Actions에서 임시 Compose 배포와 migration·health 검증 | 없음 |
-| `main` | 운영 이미지를 GHCR에 게시하고 Tailscale SSH로 WSL에 배포 | 있음 |
+| `release/**` | tree-hash 후보 이미지를 GHCR에 게시하고 해당 digest 검증 후 verified manifest 기록 | 없음 |
+| `main` | 동일 tree-hash의 verified manifest를 승격하고 Tailscale SSH로 WSL에 배포 | 있음 |
 
 `v*` 태그와 GitHub Release는 자동 배포 트리거가 아닙니다.
 
@@ -223,7 +223,7 @@ curl --fail --silent https://wildlife-sports-day.https.gsmsv.site/api/health
 
 ## 배포 동작
 
-`main` workflow는 app/migrator 이미지를 비공개 GHCR에 게시하고 이미지 digest가 포함된 요청 파일을 WSL에 전달합니다. 요청 파일에는 시크릿이 없으며 root 소유 명령이 저장소명과 SHA-256 형식을 검증합니다.
+`release/**` workflow는 Git tree hash로 식별되는 app/migrator 후보 이미지를 비공개 GHCR에 게시한 뒤, build 결과의 immutable digest로 리허설합니다. migration과 health 검증이 끝난 digest만 `verified-tree-<tree hash>` manifest로 기록합니다. `main` workflow는 현재 소스와 tree hash가 같은 verified manifest가 없으면 실패하며 이미지를 다시 빌드하지 않습니다. 해당 manifest를 `sha-<main SHA>`와 `main` 태그로 승격한 뒤 동일 digest가 포함된 요청 파일을 WSL에 전달합니다. 요청 파일에는 시크릿이 없으며 root 소유 명령이 저장소명과 SHA-256 형식을 검증합니다.
 
 1. 배포 lock 획득과 이미지 pull
 2. PostgreSQL 기동 및 health 확인
