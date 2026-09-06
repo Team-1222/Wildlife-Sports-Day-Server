@@ -219,27 +219,40 @@ verify_application() {
     return 0
 }
 
-restore_previous_after_failure() {
+restore_current_application() {
     local public_host="$1"
 
-    if [[ ! -f "${PREVIOUS_FILE}" ]]; then
-        log "No previous release exists; stopping the failed application."
-        compose_with "${CURRENT_FILE}" stop app caddy || true
+    if ! compose_with "${CURRENT_FILE}" up -d --no-deps app caddy; then
+        log "The current application could not be restarted."
         return 1
     fi
 
-    cp -- "${PREVIOUS_FILE}" "${CURRENT_FILE}"
-    chmod 600 "${CURRENT_FILE}"
-    compose_with "${CURRENT_FILE}" pull app
-    compose_with "${CURRENT_FILE}" up -d --no-deps app caddy
-
     if verify_application "${public_host}"; then
-        log "Restored the previous application image. Database migrations were not reverted."
+        log "Restored the current application image. Database migrations were not reverted."
         return 0
     fi
 
-    log "Previous application health check also failed. Review the verified database backup before manual restore."
+    log "The current application health check also failed. Review the verified database backup before manual restore."
     return 1
+}
+
+handle_candidate_failure() {
+    local candidate_file="$1"
+    local public_host="$2"
+
+    if [[ -f "${CURRENT_FILE}" ]]; then
+        log "Restoring the current application release."
+        if ! restore_current_application "${public_host}"; then
+            log "Automatic application rollback failed."
+        fi
+    else
+        log "No current release exists; stopping the failed application."
+        if ! compose_with "${candidate_file}" stop app caddy; then
+            log "The failed application could not be stopped cleanly."
+        fi
+    fi
+
+    rm -f -- "${candidate_file}"
 }
 
 apply_release() {
@@ -266,20 +279,31 @@ apply_release() {
     log "Applying committed EF Core migrations."
     compose_with "${candidate_file}" run --rm --no-deps migrator
 
-    if [[ -f "${CURRENT_FILE}" ]]; then
-        cp -- "${CURRENT_FILE}" "${PREVIOUS_FILE}"
-        chmod 600 "${PREVIOUS_FILE}"
-    fi
-    mv -f -- "${candidate_file}" "${CURRENT_FILE}"
-    chmod 600 "${CURRENT_FILE}"
-
     log "Starting the candidate application."
-    compose_with "${CURRENT_FILE}" up -d --no-deps app caddy
+    if ! compose_with "${candidate_file}" up -d --no-deps app caddy; then
+        log "Candidate application startup failed; starting automatic application rollback."
+        handle_candidate_failure "${candidate_file}" "${public_host}"
+        fail "Deployment failed while starting the candidate application."
+    fi
 
     if ! verify_application "${public_host}"; then
         log "Candidate health check failed; starting automatic application rollback."
-        restore_previous_after_failure "${public_host}" || true
+        handle_candidate_failure "${candidate_file}" "${public_host}"
         fail "Deployment failed health verification."
+    fi
+
+    if [[ -f "${CURRENT_FILE}" ]]; then
+        if ! cp -- "${CURRENT_FILE}" "${PREVIOUS_FILE}" \
+            || ! chmod 600 "${PREVIOUS_FILE}"; then
+            log "Release state preparation failed; starting automatic application rollback."
+            handle_candidate_failure "${candidate_file}" "${public_host}"
+            fail "Deployment failed while preparing release state."
+        fi
+    fi
+    if ! mv -f -- "${candidate_file}" "${CURRENT_FILE}"; then
+        log "Release state update failed; starting automatic application rollback."
+        handle_candidate_failure "${candidate_file}" "${public_host}"
+        fail "Deployment failed while updating release state."
     fi
 
     prune_database_backups
@@ -302,24 +326,51 @@ rollback_release() {
     chmod 600 "${failed_current_file}" "${rollback_file}"
     load_manifest "${rollback_file}"
 
-    mv -f -- "${rollback_file}" "${CURRENT_FILE}"
-    mv -f -- "${failed_current_file}" "${PREVIOUS_FILE}"
-    compose_with "${CURRENT_FILE}" pull app
-    compose_with "${CURRENT_FILE}" up -d --no-deps app caddy
-
-    if verify_application "${public_host}"; then
-        log "Manual application rollback completed for release ${release_id}."
-        return 0
+    if ! compose_with "${rollback_file}" pull app; then
+        rm -f -- "${rollback_file}" "${failed_current_file}"
+        fail "Manual rollback failed while pulling the target application image. Database state was not changed."
+    fi
+    if ! compose_with "${rollback_file}" up -d --no-deps app caddy; then
+        log "Rollback target startup failed; restoring the original application."
+        if ! restore_current_application "${public_host}"; then
+            log "The original application could not be restored automatically."
+        fi
+        rm -f -- "${rollback_file}" "${failed_current_file}"
+        fail "Manual rollback failed while starting the target application. Database state was not changed."
     fi
 
-    log "Rollback target failed health verification; restoring the original application state."
-    rollback_file="$(mktemp "${STATE_DIR}/.rollback-restore.XXXXXX")"
-    cp -- "${CURRENT_FILE}" "${rollback_file}"
-    cp -- "${PREVIOUS_FILE}" "${CURRENT_FILE}"
-    mv -f -- "${rollback_file}" "${PREVIOUS_FILE}"
-    chmod 600 "${CURRENT_FILE}" "${PREVIOUS_FILE}"
-    compose_with "${CURRENT_FILE}" up -d --no-deps app caddy
-    fail "Manual rollback failed. Database state was not changed."
+    if ! verify_application "${public_host}"; then
+        log "Rollback target failed health verification; restoring the original application."
+        if ! restore_current_application "${public_host}"; then
+            log "The original application could not be restored automatically."
+        fi
+        rm -f -- "${rollback_file}" "${failed_current_file}"
+        fail "Manual rollback failed. Database state was not changed."
+    fi
+
+    if ! mv -f -- "${failed_current_file}" "${PREVIOUS_FILE}"; then
+        log "Rollback state preparation failed; restoring the original application."
+        if ! restore_current_application "${public_host}"; then
+            log "The original application could not be restored automatically."
+        fi
+        rm -f -- "${rollback_file}" "${failed_current_file}"
+        fail "Manual rollback failed while preparing release state. Database state was not changed."
+    fi
+
+    if ! mv -f -- "${rollback_file}" "${CURRENT_FILE}"; then
+        log "Rollback state update failed; restoring the original release state."
+        if ! cp -- "${rollback_file}" "${PREVIOUS_FILE}" \
+            || ! chmod 600 "${PREVIOUS_FILE}"; then
+            log "The original previous release manifest could not be restored."
+        fi
+        if ! restore_current_application "${public_host}"; then
+            log "The original application could not be restored automatically."
+        fi
+        rm -f -- "${rollback_file}" "${failed_current_file}"
+        fail "Manual rollback failed while updating release state. Database state was not changed."
+    fi
+
+    log "Manual application rollback completed for release ${release_id}."
 }
 
 main() {
@@ -349,4 +400,6 @@ main() {
     esac
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

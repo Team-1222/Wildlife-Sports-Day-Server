@@ -35,3 +35,6 @@ jobs:
 
       - name: Test
         run: dotnet test Wildlife-Sports-Day-Server.sln --configuration Release --no-build
+
+      - name: Test deployment failure paths
+        run: bash deploy/server/tests/wildlife-deploy-tests.sh
