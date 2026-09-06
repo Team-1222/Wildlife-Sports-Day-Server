@@ -249,3 +249,5 @@ WSL 배포판 자체가 손상되면 내부 백업도 함께 유실될 수 있�
 ## 인프라 설정 변경
 
 `deploy` 사용자는 Docker 그룹에 속하지 않으며 root 소유 Compose/Caddy 파일을 수정할 수 없습니다. Compose, Caddy 또는 배포 스크립트가 바뀌면 최신 저장소에서 bootstrap을 다시 실행해 설치 파일을 갱신합니다.
+
+GitHub Actions는 전체 commit SHA, Dockerfile과 Compose의 기반 이미지는 `tag@sha256:digest`로 고정합니다. 버전을 올릴 때는 공식 저장소의 태그가 가리키는 commit과 공식 registry의 manifest digest를 함께 갱신하고, CI 및 `release/**` 리허설을 다시 통과시킵니다.

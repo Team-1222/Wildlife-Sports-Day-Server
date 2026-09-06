@@ -2,7 +2,7 @@ name: wildlife-production
 
 services:
   db:
-    image: postgres:18.4-alpine3.24
+    image: postgres:18.4-alpine3.24@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
     env_file:
       - /etc/wildlife/db.env
     volumes:
@@ -63,7 +63,7 @@ services:
       - ALL
 
   caddy:
-    image: caddy:2.11.4-alpine
+    image: caddy:2.11.4-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
     depends_on:
       - app
     ports:
