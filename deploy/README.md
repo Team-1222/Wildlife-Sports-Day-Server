@@ -223,8 +223,9 @@ curl --fail --silent https://wildlife-sports-day.https.gsmsv.site/api/health
 3. custom-format dump 생성과 `pg_restore --list` 검증
 4. self-contained EF migration bundle 실행
 5. 새 app/Caddy 기동
-6. loopback 및 GSMVS 공개 HTTPS `/api/health` 확인
-7. 검증이 끝난 뒤 release manifest 갱신, 실패 시 기존 app digest 자동 복구
+6. 필수 운영 설정, PostgreSQL 연결 및 pending migration이 없는지 `/api/health`로 확인
+7. loopback 및 GSMVS 공개 HTTPS health 확인
+8. 검증이 끝난 뒤 release manifest 갱신, 실패 시 기존 app digest 자동 복구
 
 최초 배포에서는 `POSTGRES_DB` 값으로 빈 데이터베이스를 만든 뒤 커밋된 EF Core migration을 적용해 스키마를 생성합니다.
 

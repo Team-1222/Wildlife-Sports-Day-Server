@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Wildlife_Sports_Day_Server.Dtos.Responses;
 using Wildlife_Sports_Day_Server.Infrastructure.Configuration;
+using Wildlife_Sports_Day_Server.Infrastructure.HealthChecks;
 using Wildlife_Sports_Day_Server.Infrastructure;
 using Wildlife_Sports_Day_Server.Middleware;
 using Wildlife_Sports_Day_Server.Repositories;
@@ -21,7 +22,8 @@ if (builder.Environment.IsProduction())
 // Add services to the container.
 
 builder.Services.AddControllers();
-builder.Services.AddHealthChecks();
+builder.Services.AddHealthChecks()
+    .AddCheck<DatabaseHealthCheck>("database");
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
     options.ForwardedHeaders =
@@ -90,6 +92,7 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
 
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IEmailVerificationCodeRepository, EmailVerificationCodeRepository>();
+builder.Services.AddScoped<IDatabaseHealthRepository, DatabaseHealthRepository>();
 builder.Services.AddScoped<IEmailSender, GmailEmailSender>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IGuestService, GuestService>();
