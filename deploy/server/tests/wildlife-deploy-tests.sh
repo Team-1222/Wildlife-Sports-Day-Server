@@ -13,6 +13,8 @@ CALL_LOG="${TEST_ROOT}/compose-calls.log"
 readonly CALL_LOG
 VERIFY_COUNT_FILE="${TEST_ROOT}/verify-count"
 readonly VERIFY_COUNT_FILE
+BACKUP_MIRROR_DIR="${TEST_ROOT}/mnt/d/WildlifeBackups"
+readonly BACKUP_MIRROR_DIR
 
 cleanup() {
     if [[ -d "${TEST_ROOT}" && "$(basename -- "${TEST_ROOT}")" == wildlife-deploy-test.* ]]; then
@@ -27,6 +29,7 @@ sed \
     -e "s|/var/backups/wildlife|${TEST_ROOT}/var/backups/wildlife|g" \
     -e "s|/run/lock|${TEST_ROOT}/run/lock|g" \
     -e "s|/etc/wildlife|${TEST_ROOT}/etc/wildlife|g" \
+    -e "s|/mnt/|${TEST_ROOT}/mnt/|g" \
     "${SOURCE_SCRIPT}" > "${TEST_SCRIPT}"
 
 # shellcheck source=/dev/null
@@ -36,6 +39,7 @@ mkdir -p \
     "${STATE_DIR}" \
     "$(dirname -- "${REQUEST_FILE}")" \
     "${BACKUP_DIR}" \
+    "${BACKUP_MIRROR_DIR}" \
     "$(dirname -- "${COMPOSE_FILE}")" \
     "${TEST_ROOT}/etc/wildlife" \
     "${TEST_ROOT}/run/lock"
@@ -52,6 +56,13 @@ readonly CANDIDATE_MIGRATOR_DIGEST="ffffffffffffffffffffffffffffffffffffffffffff
 
 compose_mode="success"
 verify_mode="success"
+mirror_device_mode="separate"
+
+{
+    printf 'PUBLIC_HOST=example.invalid\n'
+    printf 'BACKUP_MIRROR_DIR=%s\n' "${BACKUP_MIRROR_DIR}"
+} > "${TEST_ROOT}/etc/wildlife/deploy.env"
+chmod 600 "${TEST_ROOT}/etc/wildlife/deploy.env"
 
 write_test_manifest() {
     local path="$1"
@@ -75,6 +86,8 @@ reset_state() {
         "${STATE_DIR}/candidate.env" \
         "${CALL_LOG}" \
         "${VERIFY_COUNT_FILE}"
+    find "${BACKUP_DIR}" "${BACKUP_MIRROR_DIR}" \
+        -maxdepth 1 -type f -delete
 
     write_test_manifest \
         "${CURRENT_FILE}" "${CURRENT_RELEASE}" "${CURRENT_APP_DIGEST}" "${CURRENT_MIGRATOR_DIGEST}"
@@ -92,6 +105,28 @@ stat() {
         printf 'deploy\n'
         return 0
     fi
+    if [[ "${1:-}" == "-c" && "${2:-}" == "%U" \
+        && ( "${4:-}" == "${BACKUP_MIRROR_DIR}" \
+            || "${4:-}" == "${BACKUP_MIRROR_DIR}/"* ) ]]; then
+        printf 'root\n'
+        return 0
+    fi
+    if [[ "${1:-}" == "-c" && "${2:-}" == "%a" && "${4:-}" == "${BACKUP_MIRROR_DIR}" ]]; then
+        printf '700\n'
+        return 0
+    fi
+    if [[ "${1:-}" == "-c" && "${2:-}" == "%d" && "${4:-}" == "${BACKUP_DIR}" ]]; then
+        printf '100\n'
+        return 0
+    fi
+    if [[ "${1:-}" == "-c" && "${2:-}" == "%d" && "${4:-}" == "${BACKUP_MIRROR_DIR}" ]]; then
+        if [[ "${mirror_device_mode}" == "same" ]]; then
+            printf '100\n'
+        else
+            printf '200\n'
+        fi
+        return 0
+    fi
 
     command stat "$@"
 }
@@ -105,10 +140,6 @@ wait_for_database() {
 }
 
 create_database_backup() {
-    return 0
-}
-
-prune_database_backups() {
     return 0
 }
 
@@ -167,6 +198,66 @@ assert_log_contains() {
         printf 'FAIL: missing compose call: %s\n' "${expected}" >&2
         exit 1
     fi
+}
+
+test_backup_mirror_configuration_requires_separate_filesystem() {
+    local resolved_path
+
+    mirror_device_mode="separate"
+    resolved_path="$(read_backup_mirror_dir)"
+    [[ "${resolved_path}" == "${BACKUP_MIRROR_DIR}" ]] \
+        || { printf 'FAIL: backup mirror path was not resolved.\n' >&2; exit 1; }
+
+    mirror_device_mode="same"
+    if (read_backup_mirror_dir > /dev/null 2>&1); then
+        printf 'FAIL: backup mirror on the WSL filesystem was accepted.\n' >&2
+        exit 1
+    fi
+    mirror_device_mode="separate"
+}
+
+test_backup_mirror_copies_exact_file() {
+    local backup
+    local mirrored_backup
+
+    reset_state
+    backup="${BACKUP_DIR}/wildlife-20260906T000000Z-${CURRENT_RELEASE}.dump"
+    mirrored_backup="${BACKUP_MIRROR_DIR}/$(basename -- "${backup}")"
+    printf 'verified backup contents\n' > "${backup}"
+    chmod 600 "${backup}"
+
+    mirror_database_backup "${backup}" "${BACKUP_MIRROR_DIR}" > /dev/null
+
+    assert_file_equals "${backup}" "${mirrored_backup}" \
+        "Windows backup mirror does not match the local backup."
+    [[ "$(command stat -c '%a' -- "${mirrored_backup}")" == "600" ]] \
+        || { printf 'FAIL: mirrored backup does not use mode 600.\n' >&2; exit 1; }
+}
+
+test_backup_retention_keeps_seven_copies_per_directory() {
+    local backup_index
+    local backup_name
+    local local_count
+    local mirror_count
+
+    reset_state
+    for backup_index in {1..9}; do
+        backup_name="wildlife-20260906T00000${backup_index}Z-${CURRENT_RELEASE}.dump"
+        printf '%s\n' "${backup_index}" > "${BACKUP_DIR}/${backup_name}"
+        printf '%s\n' "${backup_index}" > "${BACKUP_MIRROR_DIR}/${backup_name}"
+        touch -d "@${backup_index}" \
+            "${BACKUP_DIR}/${backup_name}" \
+            "${BACKUP_MIRROR_DIR}/${backup_name}"
+    done
+
+    prune_database_backups "${BACKUP_MIRROR_DIR}"
+
+    local_count="$(find "${BACKUP_DIR}" -maxdepth 1 -type f -name 'wildlife-*.dump' | wc -l)"
+    mirror_count="$(find "${BACKUP_MIRROR_DIR}" -maxdepth 1 -type f -name 'wildlife-*.dump' | wc -l)"
+    [[ "${local_count//[[:space:]]/}" == "7" ]] \
+        || { printf 'FAIL: local backup retention did not keep seven files.\n' >&2; exit 1; }
+    [[ "${mirror_count//[[:space:]]/}" == "7" ]] \
+        || { printf 'FAIL: mirror backup retention did not keep seven files.\n' >&2; exit 1; }
 }
 
 test_apply_start_failure_restores_current_release() {
@@ -267,10 +358,13 @@ test_manual_rollback_success_swaps_release_state_after_verification() {
         "Successful rollback did not retain the original current manifest."
 }
 
+test_backup_mirror_configuration_requires_separate_filesystem
+test_backup_mirror_copies_exact_file
+test_backup_retention_keeps_seven_copies_per_directory
 test_apply_start_failure_restores_current_release
 test_apply_health_failure_restores_current_release
 test_apply_success_promotes_candidate_after_verification
 test_manual_rollback_start_failure_preserves_release_state
 test_manual_rollback_success_swaps_release_state_after_verification
 
-printf 'PASS: wildlife deployment failure-path tests completed.\n'
+printf 'PASS: wildlife deployment tests completed.\n'

@@ -129,7 +129,24 @@ Gmail__AppPassword=
 
 ```env
 PUBLIC_HOST=wildlife-sports-day.https.gsmsv.site
+BACKUP_MIRROR_DIR=/mnt/d/WildlifeBackups
 ```
+
+`BACKUP_MIRROR_DIR`은 WSL 가상 디스크 밖의 Windows 드라이브 아래에 있는 전용 디렉터리여야 합니다. 예시의 `d`는 실제 사용할 드라이브 문자로 바꿉니다. WSL에서 `root:root 700` 권한이 유지되도록 DrvFS metadata를 활성화해야 하며, 기존 `/etc/wsl.conf` 설정이 있으면 덮어쓰지 말고 `automount` 옵션에 병합합니다.
+
+```ini
+[automount]
+options = "metadata,umask=077,fmask=077"
+```
+
+설정 변경 후 Windows PowerShell에서 `wsl --shutdown`을 실행하고 WSL을 다시 시작한 다음 디렉터리를 준비합니다. Windows 쪽에서도 해당 폴더의 ACL을 현재 사용자와 관리자 등 필요한 계정으로만 제한하고, 가능하면 BitLocker가 적용된 드라이브를 사용합니다.
+
+```bash
+sudo install -d -o root -g root -m 0700 /mnt/d/WildlifeBackups
+sudo stat -c '%U:%G %a %d %n' /var/backups/wildlife /mnt/d/WildlifeBackups
+```
+
+두 경로의 장치 번호가 달라야 합니다. 배포 명령도 Windows 마운트 아래의 canonical path인지, 심볼릭 링크가 아닌지, 소유자·권한과 파일시스템이 분리되어 있는지 다시 검증합니다.
 
 권한을 확인합니다.
 
@@ -228,11 +245,13 @@ curl --fail --silent https://wildlife-sports-day.https.gsmsv.site/api/health
 1. 배포 lock 획득과 이미지 pull
 2. PostgreSQL 기동 및 health 확인
 3. custom-format dump 생성과 `pg_restore --list` 검증
-4. self-contained EF migration bundle 실행
-5. 새 app/Caddy 기동
-6. 필수 운영 설정, PostgreSQL 연결 및 pending migration이 없는지 `/api/health`로 확인
-7. loopback 및 GSMVS 공개 HTTPS health 확인
-8. 검증이 끝난 뒤 release manifest 갱신, 실패 시 기존 app digest 자동 복구
+4. 네트워크가 차단되고 종료 시 익명 볼륨까지 제거되는 일회용 PostgreSQL에 dump 전체 복원
+5. byte 비교를 거쳐 Windows 마운트 백업 디렉터리에 원자적으로 복제
+6. self-contained EF migration bundle 실행
+7. 새 app/Caddy 기동
+8. 필수 운영 설정, PostgreSQL 연결 및 pending migration이 없는지 `/api/health`로 확인
+9. loopback 및 GSMVS 공개 HTTPS health 확인
+10. 검증이 끝난 뒤 release manifest 갱신, 실패 시 기존 app digest 자동 복구
 
 최초 배포에서는 `POSTGRES_DB` 값으로 빈 데이터베이스를 만든 뒤 커밋된 EF Core migration을 적용해 스키마를 생성합니다.
 
@@ -242,9 +261,9 @@ curl --fail --silent https://wildlife-sports-day.https.gsmsv.site/api/health
 
 애플리케이션만 이전 digest로 되돌릴 때는 GitHub Actions의 `Roll Back Production` workflow를 `main` 기준으로 수동 실행합니다.
 
-DB 복원은 자동화하지 않습니다. 복원이 필요하면 앱 요청을 중단하고 `/var/backups/wildlife`의 대상 dump, 생성 시각, 현재 migration 호환성을 검토한 뒤 명시 승인된 복원 명령만 실행합니다. `pg_restore --clean`은 현재 데이터를 삭제할 수 있으므로 자동 workflow에서 실행하지 않습니다.
+운영 DB 복원은 자동화하지 않습니다. 복원이 필요하면 앱 요청을 중단하고 `/var/backups/wildlife` 또는 `BACKUP_MIRROR_DIR`의 대상 dump, 생성 시각, 현재 migration 호환성을 검토한 뒤 명시 승인된 복원 명령만 실행합니다. `pg_restore --clean`은 현재 데이터를 삭제할 수 있으므로 자동 workflow에서 실행하지 않습니다.
 
-WSL 배포판 자체가 손상되면 내부 백업도 함께 유실될 수 있습니다. 실제 데이터가 쌓이기 시작하면 `/var/backups/wildlife`의 dump를 저장소 밖 Windows 디스크나 별도 저장소에 주기적으로 복사해야 합니다. DB dump와 환경 파일은 Git에 추가하지 않습니다.
+배포 전마다 dump를 현재 DB 이미지로 만든 네트워크 차단 일회용 PostgreSQL에 실제 복원하고, 성공한 파일만 Windows 마운트 경로에 복제합니다. WSL 내부와 Windows 미러는 각각 최신 7개를 보존합니다. 이는 WSL 배포판 손상에는 대비하지만 Windows 디스크 자체의 고장까지 막지는 못하므로, 운영 중요도가 높아지면 암호화된 외부 또는 원격 백업을 추가합니다. DB dump와 환경 파일은 Git에 추가하지 않습니다.
 
 ## 인프라 설정 변경
 

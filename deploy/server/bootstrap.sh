@@ -20,6 +20,8 @@ command -v tailscale > /dev/null || fail "Tailscale is not installed."
 command -v visudo > /dev/null || fail "visudo is not installed."
 command -v curl > /dev/null || fail "curl is not installed."
 command -v flock > /dev/null || fail "flock is not installed."
+command -v realpath > /dev/null || fail "realpath is not installed."
+command -v cmp > /dev/null || fail "cmp is not installed."
 
 if ! id deploy > /dev/null 2>&1; then
     useradd --create-home --shell /bin/bash deploy
@@ -54,7 +56,7 @@ done
 printf '%s\n' \
     'Bootstrap files were installed.' \
     'Next steps:' \
-    '1. Fill /etc/wildlife/db.env, connection.env, app.env, and deploy.env as root.' \
+    '1. Prepare a root-owned mode-700 Windows backup directory and fill all environment files as root.' \
     '2. Authenticate root to private GHCR with a read:packages PAT classic.' \
     '3. Enable Tailscale SSH and tag this node as tag:wildlife-prod.' \
     '4. Apply the least-privilege tailnet policy from deploy/examples.' \

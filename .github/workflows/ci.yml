@@ -38,3 +38,7 @@ jobs:
 
       - name: Test deployment failure paths
         run: bash deploy/server/tests/wildlife-deploy-tests.sh
+
+      - name: Test database backup restoration
+        timeout-minutes: 3
+        run: bash deploy/server/tests/database-backup-restore-tests.sh

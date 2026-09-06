@@ -10,6 +10,7 @@ readonly BACKUP_DIR="/var/backups/wildlife"
 readonly LOCK_FILE="/run/lock/wildlife-deploy.lock"
 readonly APP_IMAGE_PATTERN='^ghcr\.io/team-1222/wildlife-sports-day-server@sha256:[0-9a-f]{64}$'
 readonly MIGRATOR_IMAGE_PATTERN='^ghcr\.io/team-1222/wildlife-sports-day-server-migrator@sha256:[0-9a-f]{64}$'
+readonly DATABASE_IMAGE_ID_PATTERN='^sha256:[0-9a-f]{64}$'
 
 release_id=""
 app_image=""
@@ -118,6 +119,44 @@ read_public_host() {
     printf '%s' "${public_host}"
 }
 
+read_backup_mirror_dir() {
+    local configured_path
+    local configured_path_count
+    local resolved_path
+    local local_device
+    local mirror_device
+    local owner
+    local permissions
+
+    configured_path_count="$(grep -c '^BACKUP_MIRROR_DIR=' /etc/wildlife/deploy.env || true)"
+    [[ "${configured_path_count}" -eq 1 ]] \
+        || fail "deploy.env must contain exactly one BACKUP_MIRROR_DIR entry."
+    configured_path="$(sed -n 's/^BACKUP_MIRROR_DIR=//p' /etc/wildlife/deploy.env)"
+    configured_path="${configured_path%/}"
+
+    [[ "${configured_path}" =~ ^/mnt/[A-Za-z]/[^[:cntrl:]]+$ ]] \
+        || fail "BACKUP_MIRROR_DIR must be a directory below a Windows drive mounted at /mnt/<drive>."
+    [[ -d "${configured_path}" && ! -L "${configured_path}" ]] \
+        || fail "Backup mirror must be an existing regular directory: ${configured_path}"
+
+    resolved_path="$(realpath -e -- "${configured_path}")" \
+        || fail "Backup mirror could not be resolved: ${configured_path}"
+    [[ "${resolved_path}" == "${configured_path}" ]] \
+        || fail "BACKUP_MIRROR_DIR must use a canonical path without symlinks."
+
+    owner="$(stat -c '%U' -- "${resolved_path}")"
+    permissions="$(stat -c '%a' -- "${resolved_path}")"
+    [[ "${owner}" == "root" ]] || fail "Backup mirror must be owned by root: ${resolved_path}"
+    [[ "${permissions}" == "700" ]] || fail "Backup mirror must use mode 700: ${resolved_path}"
+
+    local_device="$(stat -c '%d' -- "${BACKUP_DIR}")"
+    mirror_device="$(stat -c '%d' -- "${resolved_path}")"
+    [[ "${local_device}" != "${mirror_device}" ]] \
+        || fail "Backup mirror must be on a filesystem separate from the WSL backup directory."
+
+    printf '%s' "${resolved_path}"
+}
+
 wait_for_database() {
     local manifest="$1"
     local container_id
@@ -140,8 +179,130 @@ wait_for_database() {
     return 1
 }
 
+verify_database_restore() {
+    local manifest="$1"
+    local backup="$2"
+    local container_id
+    local database_image_id
+    local postgres_identity
+    local postgres_uid
+    local postgres_gid
+
+    container_id="$(compose_with "${manifest}" ps -q db)"
+    [[ -n "${container_id}" ]] || return 1
+    database_image_id="$(docker inspect --format '{{.Image}}' "${container_id}")"
+    [[ "${database_image_id}" =~ ${DATABASE_IMAGE_ID_PATTERN} ]] || return 1
+
+    if ! postgres_identity="$(
+        docker run --rm \
+            --network none \
+            --read-only \
+            --cap-drop ALL \
+            --security-opt no-new-privileges \
+            --entrypoint /bin/sh \
+            "${database_image_id}" \
+            -ceu 'printf "%s:%s" "$(id -u postgres)" "$(id -g postgres)"'
+    )"; then
+        return 1
+    fi
+    [[ "${postgres_identity}" =~ ^[0-9]+:[0-9]+$ ]] || return 1
+    postgres_uid="${postgres_identity%%:*}"
+    postgres_gid="${postgres_identity##*:}"
+
+    docker run --rm --interactive \
+        --network none \
+        --read-only \
+        --user "${postgres_identity}" \
+        --cap-drop ALL \
+        --security-opt no-new-privileges \
+        --pids-limit 256 \
+        --env HOME=/tmp \
+        --env PGDATA=/var/lib/postgresql/data \
+        --volume /var/lib/postgresql \
+        --tmpfs "/run/postgresql:rw,noexec,nosuid,nodev,uid=${postgres_uid},gid=${postgres_gid},mode=770" \
+        --tmpfs "/tmp:rw,noexec,nosuid,nodev,uid=${postgres_uid},gid=${postgres_gid},mode=700,size=64m" \
+        --entrypoint /bin/sh \
+        "${database_image_id}" \
+        -ceu '
+            database_started=false
+            cleanup() {
+                if [ "${database_started}" = true ]; then
+                    pg_ctl -D "${PGDATA}" -m fast -w stop > /dev/null 2>&1 || true
+                fi
+            }
+            trap cleanup EXIT
+            trap "exit 1" HUP INT TERM
+
+            initdb \
+                --username=postgres \
+                --auth-local=trust \
+                --auth-host=reject \
+                --no-locale \
+                --encoding=UTF8 \
+                --no-sync \
+                "${PGDATA}" > /dev/null
+            pg_ctl \
+                -D "${PGDATA}" \
+                -o "-c listen_addresses= -c unix_socket_directories=/run/postgresql" \
+                -w start > /dev/null
+            database_started=true
+            createdb \
+                --host=/run/postgresql \
+                --username=postgres \
+                wildlife_restore_verification
+            pg_restore \
+                --host=/run/postgresql \
+                --username=postgres \
+                --dbname=wildlife_restore_verification \
+                --exit-on-error \
+                --no-owner \
+                --no-privileges \
+                --single-transaction
+            test "$(
+                psql \
+                    --host=/run/postgresql \
+                    --username=postgres \
+                    --dbname=wildlife_restore_verification \
+                    --tuples-only \
+                    --no-align \
+                    --command="SELECT 1"
+            )" = 1
+        ' < "${backup}"
+}
+
+mirror_database_backup() {
+    local backup="$1"
+    local mirror_dir="$2"
+    local filename
+    local temporary_mirror
+    local final_mirror
+
+    filename="$(basename -- "${backup}")"
+    [[ "${filename}" == wildlife-*.dump ]] || return 1
+    final_mirror="${mirror_dir}/${filename}"
+    [[ ! -e "${final_mirror}" ]] || return 1
+
+    temporary_mirror="$(mktemp "${mirror_dir}/.wildlife-backup.XXXXXX")" || return 1
+    if ! chmod 600 "${temporary_mirror}" \
+        || [[ "$(stat -c '%U' -- "${temporary_mirror}")" != "root" ]] \
+        || [[ "$(stat -c '%a' -- "${temporary_mirror}")" != "600" ]] \
+        || ! cp -- "${backup}" "${temporary_mirror}" \
+        || [[ "$(stat -c '%U' -- "${temporary_mirror}")" != "root" ]] \
+        || [[ "$(stat -c '%a' -- "${temporary_mirror}")" != "600" ]] \
+        || ! cmp --silent "${backup}" "${temporary_mirror}" \
+        || ! mv -- "${temporary_mirror}" "${final_mirror}" \
+        || [[ "$(stat -c '%U' -- "${final_mirror}")" != "root" ]] \
+        || [[ "$(stat -c '%a' -- "${final_mirror}")" != "600" ]]; then
+        rm -f -- "${temporary_mirror}" "${final_mirror}"
+        return 1
+    fi
+
+    log "Copied verified database backup to Windows mirror: ${final_mirror}"
+}
+
 create_database_backup() {
     local manifest="$1"
+    local mirror_dir="$2"
     local timestamp
     local temporary_backup
     local final_backup
@@ -162,29 +323,47 @@ create_database_backup() {
 
     if ! compose_with "${manifest}" exec -T db pg_restore --list < "${temporary_backup}" > /dev/null; then
         rm -f -- "${temporary_backup}"
-        fail "Database backup verification failed."
+        fail "Database backup archive verification failed."
+    fi
+
+    if ! verify_database_restore "${manifest}" "${temporary_backup}"; then
+        rm -f -- "${temporary_backup}"
+        fail "Database backup restore verification failed."
     fi
 
     mv -- "${temporary_backup}" "${final_backup}"
-    log "Created verified database backup: ${final_backup}"
+    log "Created restore-verified database backup: ${final_backup}"
+
+    if ! mirror_database_backup "${final_backup}" "${mirror_dir}"; then
+        fail "Database backup could not be copied safely to the Windows mirror."
+    fi
 }
 
-prune_database_backups() {
+prune_backup_directory() {
+    local directory="$1"
     local backup
     local -a expired_backups=()
 
-    mapfile -t expired_backups < <(
-        find "${BACKUP_DIR}" -maxdepth 1 -type f -name 'wildlife-*.dump' -printf '%T@ %p\n' \
-            | sort -nr \
-            | tail -n +8 \
-            | cut -d' ' -f2-
+    mapfile -d '' -t expired_backups < <(
+        find "${directory}" -maxdepth 1 -type f -name 'wildlife-*.dump' -printf '%T@ %p\0' \
+            | sort -z -nr \
+            | tail -z -n +8 \
+            | cut -z -d' ' -f2-
     )
 
     for backup in "${expired_backups[@]}"; do
-        [[ "${backup}" == "${BACKUP_DIR}/"wildlife-*.dump ]] \
+        [[ "$(dirname -- "${backup}")" == "${directory}" \
+            && "$(basename -- "${backup}")" == wildlife-*.dump ]] \
             || fail "Refused to remove an unexpected backup path."
         rm -f -- "${backup}"
     done
+}
+
+prune_database_backups() {
+    local mirror_dir="$1"
+
+    prune_backup_directory "${BACKUP_DIR}"
+    prune_backup_directory "${mirror_dir}"
 }
 
 wait_for_health_url() {
@@ -256,6 +435,7 @@ handle_candidate_failure() {
 }
 
 apply_release() {
+    local backup_mirror_dir
     local public_host
     local candidate_file
 
@@ -268,13 +448,14 @@ apply_release() {
     candidate_file="${STATE_DIR}/candidate.env"
     write_manifest "${candidate_file}"
     public_host="$(read_public_host)"
+    backup_mirror_dir="$(read_backup_mirror_dir)"
 
     log "Pulling immutable release images."
     compose_with "${candidate_file}" pull db app migrator caddy
     compose_with "${candidate_file}" up -d db
     wait_for_database "${candidate_file}" || fail "Database did not become healthy."
 
-    create_database_backup "${candidate_file}"
+    create_database_backup "${candidate_file}" "${backup_mirror_dir}"
 
     log "Applying committed EF Core migrations."
     compose_with "${candidate_file}" run --rm --no-deps migrator
@@ -306,7 +487,7 @@ apply_release() {
         fail "Deployment failed while updating release state."
     fi
 
-    prune_database_backups
+    prune_database_backups "${backup_mirror_dir}"
     log "Deployment completed for release ${release_id}."
 }
 
