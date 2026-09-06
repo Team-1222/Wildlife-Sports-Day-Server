@@ -40,9 +40,15 @@ visudo -cf "${SCRIPT_DIR}/wildlife-sudoers" > /dev/null
 install -o root -g root -m 0440 "${SCRIPT_DIR}/wildlife-sudoers" /etc/sudoers.d/wildlife-deploy
 
 for environment_file in db.env app.env deploy.env; do
-    if [[ ! -e "/etc/wildlife/${environment_file}" ]]; then
-        install -o root -g root -m 0600 /dev/null "/etc/wildlife/${environment_file}"
+    environment_path="/etc/wildlife/${environment_file}"
+    if [[ ! -e "${environment_path}" ]]; then
+        install -o root -g root -m 0600 /dev/null "${environment_path}"
+    elif [[ ! -f "${environment_path}" || -L "${environment_path}" ]]; then
+        fail "Environment path must be a regular file: ${environment_path}"
     fi
+
+    chown root:root -- "${environment_path}"
+    chmod 0600 -- "${environment_path}"
 done
 
 printf '%s\n' \

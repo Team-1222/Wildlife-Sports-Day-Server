@@ -94,7 +94,7 @@ bootstrap은 다음 항목을 설치합니다.
 - `/etc/wildlife`: 권한 600의 운영 환경 파일
 - `/var/backups/wildlife`: 저장소 밖 DB dump 디렉터리
 
-이미 존재하는 `/etc/wildlife/db.env`, `app.env`, `deploy.env`는 덮어쓰지 않습니다.
+이미 존재하는 `/etc/wildlife/db.env`, `app.env`, `deploy.env`의 내용은 덮어쓰지 않으며, 소유자를 `root:root`, 권한을 `600`으로 보정합니다.
 
 ## 4. 운영 환경변수 설정
 

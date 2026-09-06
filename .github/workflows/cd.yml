@@ -87,6 +87,8 @@ jobs:
       MIGRATOR_IMAGE_LOCAL: wildlife-migrator:rehearsal-${{ github.sha }}
       POSTGRES_DB: wildlife_rehearsal
       POSTGRES_USER: wildlife_rehearsal
+      REHEARSAL_GMAIL_ADDRESS: rehearsal@example.invalid
+      REHEARSAL_GMAIL_APP_PASSWORD: rehearsal-${{ github.run_id }}-${{ github.run_attempt }}
 
     steps:
       - name: Checkout repository

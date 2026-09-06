@@ -39,6 +39,8 @@ services:
       ASPNETCORE_ENVIRONMENT: Production
       ASPNETCORE_HTTP_PORTS: "8080"
       ConnectionStrings__DefaultConnection: Host=db;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER}
+      Gmail__Address: ${REHEARSAL_GMAIL_ADDRESS:?REHEARSAL_GMAIL_ADDRESS is required}
+      Gmail__AppPassword: ${REHEARSAL_GMAIL_APP_PASSWORD:?REHEARSAL_GMAIL_APP_PASSWORD is required}
     depends_on:
       db:
         condition: service_healthy

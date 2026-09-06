@@ -5,12 +5,18 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Wildlife_Sports_Day_Server.Dtos.Responses;
+using Wildlife_Sports_Day_Server.Infrastructure.Configuration;
 using Wildlife_Sports_Day_Server.Infrastructure;
 using Wildlife_Sports_Day_Server.Middleware;
 using Wildlife_Sports_Day_Server.Repositories;
 using Wildlife_Sports_Day_Server.Services;
 
 var builder = WebApplication.CreateBuilder(args);
+
+if (builder.Environment.IsProduction())
+{
+    ProductionConfigurationValidator.Validate(builder.Configuration);
+}
 
 // Add services to the container.
 
