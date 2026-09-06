@@ -35,7 +35,14 @@ docker run --detach --rm \
 database_ready=false
 for _ in {1..30}; do
     if docker exec "${SOURCE_CONTAINER}" \
-        pg_isready --username=postgres --dbname=wildlife_restore_source > /dev/null 2>&1; then
+        psql \
+            --username=postgres \
+            --dbname=wildlife_restore_source \
+            --tuples-only \
+            --no-align \
+            --command='SELECT 1' \
+            2> /dev/null \
+        | grep -qx '1'; then
         database_ready=true
         break
     fi
