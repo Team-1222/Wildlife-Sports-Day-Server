@@ -383,6 +383,7 @@ main() {
 
     require_file "${COMPOSE_FILE}"
     require_root_environment_file /etc/wildlife/db.env
+    require_root_environment_file /etc/wildlife/connection.env
     require_root_environment_file /etc/wildlife/app.env
     require_root_environment_file /etc/wildlife/deploy.env
     install -d -o root -g root -m 0700 "${STATE_DIR}" "${BACKUP_DIR}"

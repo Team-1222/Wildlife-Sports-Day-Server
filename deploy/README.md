@@ -94,7 +94,7 @@ bootstrap은 다음 항목을 설치합니다.
 - `/etc/wildlife`: 권한 600의 운영 환경 파일
 - `/var/backups/wildlife`: 저장소 밖 DB dump 디렉터리
 
-이미 존재하는 `/etc/wildlife/db.env`, `app.env`, `deploy.env`의 내용은 덮어쓰지 않으며, 소유자를 `root:root`, 권한을 `600`으로 보정합니다.
+이미 존재하는 `/etc/wildlife/db.env`, `connection.env`, `app.env`, `deploy.env`의 내용은 덮어쓰지 않으며, 소유자를 `root:root`, 권한을 `600`으로 보정합니다.
 
 ## 4. 운영 환경변수 설정
 
@@ -108,15 +108,22 @@ POSTGRES_USER=
 POSTGRES_PASSWORD=
 ```
 
-`/etc/wildlife/app.env`:
+`/etc/wildlife/connection.env`:
 
 ```env
 ConnectionStrings__DefaultConnection=
+```
+
+`/etc/wildlife/app.env`:
+
+```env
 Gmail__Address=
 Gmail__AppPassword=
 ```
 
-연결 문자열은 호스트 `db`, 포트 `5432`, 그리고 `db.env`와 동일한 DB 이름·사용자·비밀번호로 구성합니다. 공개 URL이나 `localhost`를 DB 호스트로 사용하지 않습니다.
+연결 문자열은 호스트 `db`, 포트 `5432`, 그리고 `db.env`와 동일한 DB 이름·사용자·비밀번호로 구성합니다. 공개 URL이나 `localhost`를 DB 호스트로 사용하지 않습니다. 앱은 `connection.env`와 `app.env`를 함께 받지만 migrator에는 `connection.env`만 전달되므로 Gmail 자격 증명은 노출되지 않습니다.
+
+기존 설치를 갱신할 때는 `app.env`의 `ConnectionStrings__DefaultConnection` 값을 `sudoedit /etc/wildlife/connection.env`로 옮긴 뒤 `app.env`에서 해당 항목을 삭제합니다. 값을 셸 명령 인자에 넣거나 출력하지 않습니다.
 
 `/etc/wildlife/deploy.env`:
 
@@ -130,7 +137,7 @@ PUBLIC_HOST=wildlife-sports-day.https.gsmsv.site
 sudo stat -c '%U:%G %a %n' /etc/wildlife/*.env
 ```
 
-세 파일은 모두 `root:root 600`이어야 합니다. `deploy.env`의 공개 호스트명은 시크릿이 아니지만 배포 설정의 무단 변경을 막기 위해 동일한 권한을 사용합니다.
+네 파일은 모두 `root:root 600`이어야 합니다. `deploy.env`의 공개 호스트명은 시크릿이 아니지만 배포 설정의 무단 변경을 막기 위해 동일한 권한을 사용합니다.
 
 ## 5. 비공개 GHCR 로그인
 
