@@ -33,7 +33,7 @@ if (/(migration|efcore|dbcontext|entity|repository|database|postgres|마이그�
 }
 
 if (/(commit|git|pr|pull request|커밋|깃|풀리퀘스트|풀 리퀘스트|피알|PR)/i.test(lower)) {
-  addSnippet("[context] Commit/PR rules: commit title is type: 한국어설명 (no period, no scope). If a related issue exists, first body line is #<issue-number>. One logical change per commit. Do not push or open PRs without explicit approval. PRs with DB impact need backup and rollback notes.");
+  addSnippet("[context] Commit/PR rules: commit title is type: 한국어설명 (no period, no scope). If a related issue exists, first body line is #<issue-number>. Split commits by implementation work unit and, when addressing review feedback, by each individual code-review finding. One independently reviewable finding per commit; never combine distinct findings merely because they touch related files. Do not push or open PRs without explicit approval. PRs with DB impact need backup and rollback notes.");
 
   const issueMatch = prompt.match(/#\d+/);
   const noIssueConfirmed = /(관련\s*)?이슈\s*(없|없어|없음)|이슈\s*번호\s*(없|없어|없음)|no\s+(related\s+)?issue|without\s+issue/i.test(prompt);
