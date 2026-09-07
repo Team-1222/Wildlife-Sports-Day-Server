@@ -1,4 +1,4 @@
-name: Server Production Deployment
+name: Server Production CD
 
 on:
   push:

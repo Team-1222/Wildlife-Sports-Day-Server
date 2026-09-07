@@ -1,11 +1,6 @@
-name: Server CI
+name: Server Common CI
 
 on:
-  push:
-    branches-ignore:
-      - main
-  pull_request:
-  workflow_dispatch:
   workflow_call:
 
 permissions:

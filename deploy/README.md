@@ -13,7 +13,8 @@ GSMVS가 와일드카드 인증서로 공개 HTTPS를 종료하고 서버의 TCP
 
 | 이벤트 | 동작 | WSL 변경 |
 | --- | --- | --- |
-| `main` 이외 브랜치 push 및 모든 PR | 빌드·테스트·배포 스크립트 검증 | 없음 |
+| `main` 이외 브랜치 push | 공통 CI 후 app/migrator 개발 이미지를 `dev-<commit SHA>` 태그로 발행 | 없음 |
+| 모든 PR | 공통 CI만 실행하며 이미지는 발행하지 않음 | 없음 |
 | 보호된 `main` 브랜치 반영 | CI 후 후보 이미지를 빌드·리허설하고 동일 digest를 운영에 배포 | 있음 |
 
 `v*` 태그와 GitHub Release는 자동 배포 트리거가 아닙니다.
@@ -239,7 +240,9 @@ curl --fail --silent https://wildlife-sports-day.https.gsmsv.site/api/health
 
 ## 배포 동작
 
-일반 브랜치의 커밋과 PR에서는 CI만 실행합니다. 보호된 `main` 브랜치에 변경이 반영되면 운영 CD가 같은 CI를 먼저 통과한 뒤 app/migrator 후보 이미지를 한 번만 빌드합니다. build 결과의 immutable digest로 migration과 health 리허설을 수행하고, 성공한 동일 digest만 `sha-<main SHA>`와 `main` 태그로 승격해 WSL에 배포합니다. 요청 파일에는 시크릿이 없으며 root 소유 명령이 저장소명과 SHA-256 형식을 검증합니다.
+공통 검증은 `.github/workflows/ci.yml`에 정의하며 개발과 운영 workflow가 재사용합니다. `main` 이외 브랜치에 커밋을 push하면 개발 CI/CD가 검증 후 app/migrator 이미지를 `dev-<commit SHA>` 태그로 발행합니다. PR은 읽기 권한으로 검증만 실행하며 이미지를 발행하거나 WSL을 변경하지 않습니다.
+
+보호된 `main` 브랜치에 변경이 반영되면 운영 CD가 같은 CI를 먼저 통과한 뒤 app/migrator 후보 이미지를 한 번만 빌드합니다. build 결과의 immutable digest로 migration과 health 리허설을 수행하고, 성공한 동일 digest만 `sha-<main SHA>`와 `main` 태그로 승격해 WSL에 배포합니다. 요청 파일에는 시크릿이 없으며 root 소유 명령이 저장소명과 SHA-256 형식을 검증합니다.
 
 1. 배포 lock 획득과 이미지 pull
 2. PostgreSQL 기동 및 health 확인
