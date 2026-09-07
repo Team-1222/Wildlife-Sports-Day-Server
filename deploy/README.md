@@ -11,11 +11,10 @@
 
 GSMVS가 와일드카드 인증서로 공개 HTTPS를 종료하고 서버의 TCP 18080에 HTTP로 전달합니다. PostgreSQL 5432, 앱 8080, SSH 22와 Caddy의 80/443은 외부에 공개하지 않습니다.
 
-| 브랜치 | 동작 | WSL 변경 |
+| 이벤트 | 동작 | WSL 변경 |
 | --- | --- | --- |
-| `develop` | CI 후 app/migrator 개발 이미지를 GHCR에 게시 | 없음 |
-| `release/**` | tree-hash 후보 이미지를 GHCR에 게시하고 해당 digest 검증 후 verified manifest 기록 | 없음 |
-| `main` | 동일 tree-hash의 verified manifest를 승격하고 Tailscale SSH로 WSL에 배포 | 있음 |
+| `main` 이외 브랜치 push 및 모든 PR | 빌드·테스트·배포 스크립트 검증 | 없음 |
+| 보호된 `main` 브랜치 반영 | CI 후 후보 이미지를 빌드·리허설하고 동일 digest를 운영에 배포 | 있음 |
 
 `v*` 태그와 GitHub Release는 자동 배포 트리거가 아닙니다.
 
@@ -240,7 +239,7 @@ curl --fail --silent https://wildlife-sports-day.https.gsmsv.site/api/health
 
 ## 배포 동작
 
-`release/**` workflow는 Git tree hash로 식별되는 app/migrator 후보 이미지를 비공개 GHCR에 게시한 뒤, build 결과의 immutable digest로 리허설합니다. migration과 health 검증이 끝난 digest만 `verified-tree-<tree hash>` manifest로 기록합니다. `main` workflow는 현재 소스와 tree hash가 같은 verified manifest가 없으면 실패하며 이미지를 다시 빌드하지 않습니다. 해당 manifest를 `sha-<main SHA>`와 `main` 태그로 승격한 뒤 동일 digest가 포함된 요청 파일을 WSL에 전달합니다. 요청 파일에는 시크릿이 없으며 root 소유 명령이 저장소명과 SHA-256 형식을 검증합니다.
+일반 브랜치의 커밋과 PR에서는 CI만 실행합니다. 보호된 `main` 브랜치에 변경이 반영되면 운영 CD가 같은 CI를 먼저 통과한 뒤 app/migrator 후보 이미지를 한 번만 빌드합니다. build 결과의 immutable digest로 migration과 health 리허설을 수행하고, 성공한 동일 digest만 `sha-<main SHA>`와 `main` 태그로 승격해 WSL에 배포합니다. 요청 파일에는 시크릿이 없으며 root 소유 명령이 저장소명과 SHA-256 형식을 검증합니다.
 
 1. 배포 lock 획득과 이미지 pull
 2. PostgreSQL 기동 및 health 확인
@@ -269,4 +268,4 @@ curl --fail --silent https://wildlife-sports-day.https.gsmsv.site/api/health
 
 `deploy` 사용자는 Docker 그룹에 속하지 않으며 root 소유 Compose/Caddy 파일을 수정할 수 없습니다. Compose, Caddy 또는 배포 스크립트가 바뀌면 최신 저장소에서 bootstrap을 다시 실행해 설치 파일을 갱신합니다.
 
-GitHub Actions는 전체 commit SHA, Dockerfile과 Compose의 기반 이미지는 `tag@sha256:digest`로 고정합니다. 버전을 올릴 때는 공식 저장소의 태그가 가리키는 commit과 공식 registry의 manifest digest를 함께 갱신하고, CI 및 `release/**` 리허설을 다시 통과시킵니다.
+GitHub Actions는 전체 commit SHA, Dockerfile과 Compose의 기반 이미지는 `tag@sha256:digest`로 고정합니다. 버전을 올릴 때는 공식 저장소의 태그가 가리키는 commit과 공식 registry의 manifest digest를 함께 갱신하고, CI 및 `main` 운영 리허설을 다시 통과시킵니다.
