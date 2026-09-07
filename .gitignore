@@ -12,6 +12,7 @@
 *.env
 .env.local
 secrets.json
+*.dump
 appsettings.Local.json
 appsettings.*.Local.json
 .idea/

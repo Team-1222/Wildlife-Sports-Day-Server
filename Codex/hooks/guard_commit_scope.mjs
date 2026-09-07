@@ -2,6 +2,11 @@
 import { execFileSync } from "node:child_process";
 import { fileExists, getString, logPath, outputBlock, parsePayload, projectRoot, readStdin, readText } from "./common.mjs";
 
+const commitSplitPolicy = [
+  "Split commits by implementation work unit and by individual code-review finding.",
+  "Keep one independently reviewable finding per commit; do not combine distinct findings merely because they touch related files."
+];
+
 const raw = await readStdin();
 const payload = parsePayload(raw);
 const command = getString(payload, "command");
@@ -156,6 +161,7 @@ if (hasCodexWorkflow && hasNonCodexWorkflow) {
   outputBlock([
     "[commit-scope-hook] Codex workflow changes are staged together with app changes.",
     "Split Codex skill/hook/policy updates into their own commit.",
+    ...commitSplitPolicy,
     "",
     "Staged categories:",
     ...categoryNames.map((category) => `  - ${category}: ${categories.get(category).length} file(s)`)
@@ -167,7 +173,8 @@ const broadCategories = categoryNames.filter((category) => category !== "project
 if (files.length >= 12 && broadCategories.length >= 3) {
   outputBlock([
     "[commit-scope-hook] Staged changes look like a broad all-in-one commit.",
-    "Split by logical unit before committing: data model/migrations, app behavior, tests, docs, and workflow changes.",
+    ...commitSplitPolicy,
+    "Implementation work units include data model/migrations, app behavior, tests, docs, and workflow changes.",
     "",
     "Staged categories:",
     ...categoryNames.map((category) => `  - ${category}: ${categories.get(category).length} file(s)`)

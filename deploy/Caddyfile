@@ -1,0 +1,25 @@
+{
+	admin off
+}
+
+(wildlife_proxy) {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		X-XSS-Protection "1; mode=block"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+
+	reverse_proxy app:8080 {
+		header_up X-Forwarded-Proto https
+	}
+}
+
+# GSMVS terminates public HTTPS and forwards HTTP traffic to this listener.
+http://:8080 {
+	import wildlife_proxy
+}
