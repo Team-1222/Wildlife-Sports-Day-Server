@@ -1,5 +1,0 @@
-*.sh text eol=lf
-deploy/server/wildlife-deploy text eol=lf
-deploy/server/wildlife-sudoers text eol=lf
-*.yml text eol=lf
-*.yaml text eol=lf
