@@ -1,12 +1,7 @@
 using Microsoft.AspNetCore.Authentication.Cookies;
-using Microsoft.AspNetCore.Diagnostics.HealthChecks;
-using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Wildlife_Sports_Day_Server.Dtos.Responses;
-using Wildlife_Sports_Day_Server.Infrastructure.Configuration;
-using Wildlife_Sports_Day_Server.Infrastructure.HealthChecks;
 using Wildlife_Sports_Day_Server.Infrastructure;
 using Wildlife_Sports_Day_Server.Middleware;
 using Wildlife_Sports_Day_Server.Repositories;
@@ -14,27 +9,9 @@ using Wildlife_Sports_Day_Server.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-if (builder.Environment.IsProduction())
-{
-    ProductionConfigurationValidator.Validate(builder.Configuration);
-}
-
 // Add services to the container.
 
 builder.Services.AddControllers();
-builder.Services.AddHealthChecks()
-    .AddCheck<DatabaseHealthCheck>("database");
-builder.Services.Configure<ForwardedHeadersOptions>(options =>
-{
-    options.ForwardedHeaders =
-        ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
-    options.ForwardLimit = 1;
-    if (!builder.Environment.IsDevelopment())
-    {
-        options.KnownIPNetworks.Clear();
-        options.KnownProxies.Clear();
-    }
-});
 builder.Services.Configure<ApiBehaviorOptions>(options =>
 {
     options.InvalidModelStateResponseFactory = context =>
@@ -92,7 +69,6 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
 
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IEmailVerificationCodeRepository, EmailVerificationCodeRepository>();
-builder.Services.AddScoped<IDatabaseHealthRepository, DatabaseHealthRepository>();
 builder.Services.AddScoped<IEmailSender, GmailEmailSender>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IGuestService, GuestService>();
@@ -107,7 +83,6 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseMiddleware<ExceptionMiddleware>();
-app.UseForwardedHeaders();
 app.UseHttpsRedirection();
 app.UseRouting();
 app.UseAuthentication();
@@ -115,23 +90,5 @@ app.UseAuthorization();
 app.UseSession();
 
 app.MapControllers();
-app.MapHealthChecks("/api/health", new HealthCheckOptions
-{
-    ResponseWriter = async (context, report) =>
-    {
-        var isHealthy = report.Status == HealthStatus.Healthy;
-        var response = new ApiResponse<HealthResponse>
-        {
-            Success = isHealthy,
-            Message = isHealthy
-                ? "서버가 정상적으로 실행 중입니다."
-                : "서버 상태를 확인할 수 없습니다.",
-            Code = isHealthy ? null : "HEALTH_CHECK_FAILED",
-            Data = new HealthResponse(report.Status.ToString())
-        };
-
-        await context.Response.WriteAsJsonAsync(response);
-    }
-});
 
 app.Run();
