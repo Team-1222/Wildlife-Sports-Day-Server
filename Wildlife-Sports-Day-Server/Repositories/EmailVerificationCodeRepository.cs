@@ -39,6 +39,21 @@ public class EmailVerificationCodeRepository(AppDbContext dbContext) : IEmailVer
         await dbContext.SaveChangesAsync();
     }
 
+    public async Task<bool> TryVerifyAsync(int verificationCodeId, int maxAttempts)
+    {
+        var now = DateTime.UtcNow;
+        var updatedCount = await dbContext.EmailVerificationCodes
+            .Where(code => code.Id == verificationCodeId
+                && code.Status == EmailVerificationCodeStatus.Pending
+                && code.AttemptCount < maxAttempts
+                && code.ExpiresAt >= now)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(code => code.Status, EmailVerificationCodeStatus.Verified)
+                .SetProperty(code => code.VerifiedAt, now));
+
+        return updatedCount == 1;
+    }
+
     public async Task<EmailVerificationCode?> IncrementAttemptCountAsync(int verificationCodeId, int maxAttempts)
     {
         var now = DateTime.UtcNow;

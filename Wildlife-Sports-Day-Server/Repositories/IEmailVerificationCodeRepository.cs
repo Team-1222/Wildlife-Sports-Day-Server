@@ -9,6 +9,7 @@ public interface IEmailVerificationCodeRepository
     Task<EmailVerificationCode?> FindLatestActiveByEmailAsync(string email);
     Task<EmailVerificationCode> SaveAsync(EmailVerificationCode verificationCode);
     Task UpdateAsync(EmailVerificationCode verificationCode);
+    Task<bool> TryVerifyAsync(int verificationCodeId, int maxAttempts);
     Task<EmailVerificationCode?> IncrementAttemptCountAsync(int verificationCodeId, int maxAttempts);
     Task RevokeUsableByEmailAsync(string email);
     Task RevokeActiveByEmailExceptAsync(string email, int retainedCodeId);

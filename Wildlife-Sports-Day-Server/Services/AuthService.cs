@@ -132,9 +132,10 @@ public class AuthService(
             throw new AppException("인증 코드가 올바르지 않습니다.", StatusCodes.Status400BadRequest);
         }
 
-        verificationCode.Status = EmailVerificationCodeStatus.Verified;
-        verificationCode.VerifiedAt = DateTime.UtcNow;
-        await emailVerificationCodeRepository.UpdateAsync(verificationCode);
+        if (!await emailVerificationCodeRepository.TryVerifyAsync(verificationCode.Id, MaxVerificationAttempts))
+        {
+            throw new AppException("사용할 수 없는 인증 코드입니다.", StatusCodes.Status400BadRequest);
+        }
 
         await httpContext.Session.LoadAsync();
         httpContext.Session.SetString(EmailVerificationSessionKeys.VerifiedEmail, verificationCode.Email);

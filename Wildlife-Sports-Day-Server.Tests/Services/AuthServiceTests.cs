@@ -306,6 +306,7 @@ public class AuthServiceTests
         var httpContext = CreateHttpContext();
 
         codeRepository.Setup(repository => repository.FindLatestActiveByEmailAsync("user@example.com")).ReturnsAsync(verificationCode);
+        codeRepository.Setup(repository => repository.TryVerifyAsync(verificationCode.Id, 5)).ReturnsAsync(true);
 
         var service = CreateService(userRepository, codeRepository, emailSender);
 
@@ -315,11 +316,36 @@ public class AuthServiceTests
             Code = "123456"
         }, httpContext);
 
-        Assert.Equal(EmailVerificationCodeStatus.Verified, verificationCode.Status);
-        Assert.NotNull(verificationCode.VerifiedAt);
         Assert.Equal("user@example.com", httpContext.Session.GetString("EmailVerification.VerifiedEmail"));
         Assert.Equal(11, httpContext.Session.GetInt32("EmailVerification.VerifiedCodeId"));
-        codeRepository.Verify(repository => repository.UpdateAsync(verificationCode), Times.Once);
+        codeRepository.Verify(repository => repository.TryVerifyAsync(verificationCode.Id, 5), Times.Once);
+        codeRepository.Verify(repository => repository.UpdateAsync(It.IsAny<EmailVerificationCode>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task VerifyEmailCodeAsync_StateChangedAfterRead_DoesNotGrantSession()
+    {
+        // Given: 조회 후 다른 요청이 코드를 잠그거나 폐기해 조건부 갱신이 거절됩니다.
+        var userRepository = new Mock<IUserRepository>();
+        var codeRepository = new Mock<IEmailVerificationCodeRepository>();
+        var emailSender = new Mock<IEmailSender>();
+        var staleCode = CreatePendingCode("123456", DateTime.UtcNow.AddMinutes(5));
+        staleCode.Id = 14;
+        staleCode.AttemptCount = 4;
+        codeRepository.Setup(repository => repository.FindLatestActiveByEmailAsync(staleCode.Email)).ReturnsAsync(staleCode);
+        codeRepository.Setup(repository => repository.TryVerifyAsync(staleCode.Id, 5)).ReturnsAsync(false);
+        var httpContext = CreateHttpContext();
+        var service = CreateService(userRepository, codeRepository, emailSender);
+
+        // When
+        var exception = await Assert.ThrowsAsync<AppException>(() => service.VerifyEmailCodeAsync(
+            new VerifyEmailCodeRequest { Email = staleCode.Email, Code = "123456" }, httpContext));
+
+        // Then
+        Assert.Equal(StatusCodes.Status400BadRequest, exception.StatusCode);
+        Assert.Null(httpContext.Session.GetString("EmailVerification.VerifiedEmail"));
+        Assert.Null(httpContext.Session.GetInt32("EmailVerification.VerifiedCodeId"));
+        codeRepository.Verify(repository => repository.UpdateAsync(It.IsAny<EmailVerificationCode>()), Times.Never);
     }
 
     [Fact]
