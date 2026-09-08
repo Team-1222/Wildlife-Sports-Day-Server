@@ -57,6 +57,6 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=migration-build /out/migrations/ .
 RUN chmod 0555 /app/efbundle
-ENV DOTNET_BUNDLE_EXTRACT_BASE_DIR=/tmp/.net
+ENV DOTNET_BUNDLE_EXTRACT_BASE_DIR=/run/dotnet-bundle
 USER 1654
 ENTRYPOINT ["/bin/sh", "-c", "test -n \"$ConnectionStrings__DefaultConnection\" || { echo 'Connection string is required.' >&2; exit 1; }; exec /app/efbundle --no-color --connection \"$ConnectionStrings__DefaultConnection\""]

@@ -32,6 +32,7 @@ services:
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=64m
+      - /run/dotnet-bundle:rw,exec,nosuid,nodev,size=64m,uid=1654,gid=1654,mode=0700
     security_opt:
       - no-new-privileges:true
     cap_drop:
