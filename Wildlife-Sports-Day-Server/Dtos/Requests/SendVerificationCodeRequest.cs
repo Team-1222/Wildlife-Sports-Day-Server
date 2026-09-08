@@ -6,5 +6,6 @@ public class SendVerificationCodeRequest
 {
     [Required(ErrorMessage = "이메일은 필수입니다.")]
     [EmailAddress(ErrorMessage = "올바른 이메일 형식이 아닙니다.")]
+    [StringLength(255, ErrorMessage = "이메일은 255자 이내로 입력하십시오.")]
     public string Email { get; init; } = null!;
 }
