@@ -14,8 +14,12 @@ using Xunit;
 
 namespace Wildlife_Sports_Day_Server.Tests.Services;
 
-public class AuthServiceTests
+public class AuthServiceTests : IDisposable
 {
+    private readonly LoginAttemptTracker loginAttemptTracker = new(TimeProvider.System);
+
+    public void Dispose() => loginAttemptTracker.Dispose();
+
     [Fact]
     public async Task SendVerificationEmailAsync_NewEmail_SavesHashedCodeAndSendsEmail()
     {
@@ -758,7 +762,7 @@ public class AuthServiceTests
         userRepository.Verify(repository => repository.ExistsByEmailAsync(It.IsAny<string>()), Times.Never);
     }
 
-    private static AuthService CreateService(
+    private AuthService CreateService(
         Mock<IUserRepository> userRepository,
         Mock<IEmailVerificationCodeRepository> codeRepository,
         Mock<IEmailSender> emailSender) =>
@@ -766,6 +770,7 @@ public class AuthServiceTests
             userRepository.Object,
             codeRepository.Object,
             emailSender.Object,
+            loginAttemptTracker,
             NullLogger<AuthService>.Instance);
 
     private static DefaultHttpContext CreateHttpContext(TestAuthenticationService authenticationService)

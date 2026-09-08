@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text.Encodings.Web;
@@ -18,16 +17,14 @@ public class AuthService(
     IUserRepository userRepository,
     IEmailVerificationCodeRepository emailVerificationCodeRepository,
     IEmailSender emailSender,
+    ILoginAttemptTracker loginAttemptTracker,
     ILogger<AuthService> logger) : IAuthService
 {
     private const int VerificationCodeMinutes = 5;//코드 허용 기간
     private const int VerifiedSignupMinutes = 5;//코드 인증후 로그인 가능 기간
     private const int ResendCooldownSeconds = 60;//전송 대기 시간
     private const int MaxVerificationAttempts = 5;//이메일 인증 횟수
-    private const int MaxLoginAttempts = 5;
     private const string DefaultUserRole = "Player";
-    private static readonly TimeSpan LoginAttemptWindow = TimeSpan.FromMinutes(5);
-    private static readonly ConcurrentDictionary<string, LoginAttemptState> LoginAttempts = new();
     private static readonly StripedAsyncLock LoginAttemptLocks = new();
     private static readonly string DummyPasswordHash = BCrypt.Net.BCrypt.HashPassword(Guid.NewGuid().ToString("N"));
 
@@ -235,7 +232,7 @@ public class AuthService(
         var normalizedNickname = NormalizeNickname(request.Nickname);
         var loginAttemptKey = BuildLoginAttemptKey(normalizedNickname, httpContext);
         using var attemptLock = await LoginAttemptLocks.AcquireAsync(loginAttemptKey, httpContext.RequestAborted);
-        if (IsLoginAttemptBlocked(loginAttemptKey))
+        if (loginAttemptTracker.IsBlocked(loginAttemptKey))
         {
             throw new AppException("로그인 시도 횟수를 초과했습니다.", StatusCodes.Status429TooManyRequests);
         }
@@ -245,11 +242,11 @@ public class AuthService(
         var isPasswordValid = BCrypt.Net.BCrypt.Verify(request.Password, passwordHash);
         if (user is null || !isPasswordValid)
         {
-            RecordFailedLogin(loginAttemptKey);
+            loginAttemptTracker.RecordFailure(loginAttemptKey);
             throw new AppException("닉네임 또는 비밀번호가 올바르지 않습니다.", StatusCodes.Status401Unauthorized);
         }
 
-        LoginAttempts.TryRemove(loginAttemptKey, out _);
+        loginAttemptTracker.Reset(loginAttemptKey);
 
         var claims = new List<Claim>
         {
@@ -300,33 +297,6 @@ public class AuthService(
         return $"{remoteAddress}:{nickname}";
     }
 
-    private static bool IsLoginAttemptBlocked(string key)
-    {
-        if (!LoginAttempts.TryGetValue(key, out var state))
-        {
-            return false;
-        }
-
-        if (state.StartedAtUtc.Add(LoginAttemptWindow) <= DateTime.UtcNow)
-        {
-            LoginAttempts.TryRemove(key, out _);
-            return false;
-        }
-
-        return state.Count >= MaxLoginAttempts;
-    }
-
-    private static void RecordFailedLogin(string key)
-    {
-        var now = DateTime.UtcNow;
-        LoginAttempts.AddOrUpdate(
-            key,
-            _ => new LoginAttemptState(1, now),
-            (_, state) => state.StartedAtUtc.Add(LoginAttemptWindow) <= now
-                ? new LoginAttemptState(1, now)
-                : state with { Count = state.Count + 1 });
-    }
-
     private static void ClearVerifiedEmailSession(HttpContext httpContext)
     {
         httpContext.Session.Remove(EmailVerificationSessionKeys.VerifiedEmail);
@@ -355,6 +325,4 @@ public class AuthService(
                <p>이 코드는 {VerificationCodeMinutes}분 후에 만료됩니다.</p>
                """;
     }
-
-    private sealed record LoginAttemptState(int Count, DateTime StartedAtUtc);
 }

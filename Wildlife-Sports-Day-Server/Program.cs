@@ -95,6 +95,8 @@ builder.Services.AddScoped<IEmailVerificationCodeRepository, EmailVerificationCo
 builder.Services.AddScoped<IDatabaseHealthRepository, DatabaseHealthRepository>();
 builder.Services.AddScoped<IEmailSender, GmailEmailSender>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<ILoginAttemptTracker, LoginAttemptTracker>();
 builder.Services.AddScoped<IGuestService, GuestService>();
 builder.Services.AddAuthorization();
 
