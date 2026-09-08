@@ -39,7 +39,7 @@ public class AuthService(
             return new MessageResponse { Message = "인증 코드가 발송되었습니다." };
         }
 
-        var latestCode = await emailVerificationCodeRepository.FindLatestActiveByEmailAsync(normalizedEmail);
+        var latestCode = await emailVerificationCodeRepository.FindLatestSentByEmailAsync(normalizedEmail);
         if (latestCode is not null && latestCode.CreatedAt > DateTime.UtcNow.AddSeconds(-ResendCooldownSeconds))
         {
             throw new AppException("인증 코드는 1분 후에 재발송할 수 있습니다.", StatusCodes.Status429TooManyRequests);

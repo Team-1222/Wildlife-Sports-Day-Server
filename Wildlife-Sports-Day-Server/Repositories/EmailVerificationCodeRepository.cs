@@ -26,6 +26,14 @@ public class EmailVerificationCodeRepository(AppDbContext dbContext) : IEmailVer
             .ThenByDescending(code => code.Id)
             .FirstOrDefaultAsync();
 
+    public async Task<EmailVerificationCode?> FindLatestSentByEmailAsync(string email) =>
+        await dbContext.EmailVerificationCodes
+            .AsNoTracking()
+            .Where(code => code.Email == email && code.Status != EmailVerificationCodeStatus.SendFailed)
+            .OrderByDescending(code => code.CreatedAt)
+            .ThenByDescending(code => code.Id)
+            .FirstOrDefaultAsync();
+
     public async Task<EmailVerificationCode> SaveAsync(EmailVerificationCode verificationCode)
     {
         dbContext.EmailVerificationCodes.Add(verificationCode);

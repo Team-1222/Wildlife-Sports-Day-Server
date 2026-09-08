@@ -6,6 +6,7 @@ public interface IEmailVerificationCodeRepository
 {
     Task<EmailVerificationCode?> FindByIdAsync(int id);
     Task<EmailVerificationCode?> FindLatestByEmailAsync(string email);
+    Task<EmailVerificationCode?> FindLatestSentByEmailAsync(string email);
     Task<EmailVerificationCode?> FindLatestActiveByEmailAsync(string email);
     Task<EmailVerificationCode> SaveAsync(EmailVerificationCode verificationCode);
     Task UpdateAsync(EmailVerificationCode verificationCode);

@@ -27,7 +27,7 @@ public class AuthServiceTests
 
         userRepository.Setup(repository => repository.ExistsByEmailAsync("user@example.com")).ReturnsAsync(false);
         codeRepository
-            .Setup(repository => repository.FindLatestActiveByEmailAsync("user@example.com"))
+            .Setup(repository => repository.FindLatestSentByEmailAsync("user@example.com"))
             .ReturnsAsync((EmailVerificationCode?)null);
         codeRepository
             .Setup(repository => repository.SaveAsync(It.IsAny<EmailVerificationCode>()))
@@ -66,7 +66,7 @@ public class AuthServiceTests
 
         userRepository.Setup(repository => repository.ExistsByEmailAsync("user@example.com")).ReturnsAsync(false);
         codeRepository
-            .Setup(repository => repository.FindLatestActiveByEmailAsync("user@example.com"))
+            .Setup(repository => repository.FindLatestSentByEmailAsync("user@example.com"))
             .ReturnsAsync(existingCode);
         codeRepository
             .Setup(repository => repository.SaveAsync(It.IsAny<EmailVerificationCode>()))
@@ -99,7 +99,7 @@ public class AuthServiceTests
 
         userRepository.Setup(repository => repository.ExistsByEmailAsync("user@example.com")).ReturnsAsync(false);
         codeRepository
-            .Setup(repository => repository.FindLatestActiveByEmailAsync("user@example.com"))
+            .Setup(repository => repository.FindLatestSentByEmailAsync("user@example.com"))
             .ReturnsAsync(existingCode);
         codeRepository
             .Setup(repository => repository.SaveAsync(It.IsAny<EmailVerificationCode>()))
@@ -137,7 +137,7 @@ public class AuthServiceTests
         latestCode.CreatedAt = DateTime.UtcNow;
 
         userRepository.Setup(repository => repository.ExistsByEmailAsync("user@example.com")).ReturnsAsync(false);
-        codeRepository.Setup(repository => repository.FindLatestActiveByEmailAsync("user@example.com")).ReturnsAsync(latestCode);
+        codeRepository.Setup(repository => repository.FindLatestSentByEmailAsync("user@example.com")).ReturnsAsync(latestCode);
 
         var service = CreateService(userRepository, codeRepository, emailSender);
 
@@ -153,6 +153,31 @@ public class AuthServiceTests
         emailSender.Verify(sender => sender.SendAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
     }
 
+    [Theory]
+    [InlineData(EmailVerificationCodeStatus.AttemptLimitExceeded)]
+    [InlineData(EmailVerificationCodeStatus.Revoked)]
+    [InlineData(EmailVerificationCodeStatus.Expired)]
+    public async Task SendVerificationEmailAsync_RecentlySentCodeUnavailable_KeepsCooldown(EmailVerificationCodeStatus status)
+    {
+        // Given
+        var userRepository = new Mock<IUserRepository>();
+        var codeRepository = new Mock<IEmailVerificationCodeRepository>();
+        var emailSender = new Mock<IEmailSender>();
+        var code = CreatePendingCode("123456", DateTime.UtcNow.AddMinutes(5));
+        code.Status = status;
+        code.AttemptCount = 5;
+        codeRepository.Setup(repository => repository.FindLatestSentByEmailAsync(code.Email)).ReturnsAsync(code);
+        var service = CreateService(userRepository, codeRepository, emailSender);
+
+        // When
+        var exception = await Assert.ThrowsAsync<AppException>(() => service.SendVerificationEmailAsync(
+            new SendVerificationCodeRequest { Email = code.Email }));
+
+        // Then
+        Assert.Equal(StatusCodes.Status429TooManyRequests, exception.StatusCode);
+        emailSender.Verify(sender => sender.SendAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
     [Fact]
     public async Task SendVerificationEmailAsync_PreviousSendFailedCode_SendsEmailWithoutCooldown()
     {
@@ -163,7 +188,7 @@ public class AuthServiceTests
 
         userRepository.Setup(repository => repository.ExistsByEmailAsync("user@example.com")).ReturnsAsync(false);
         codeRepository
-            .Setup(repository => repository.FindLatestActiveByEmailAsync("user@example.com"))
+            .Setup(repository => repository.FindLatestSentByEmailAsync("user@example.com"))
             .ReturnsAsync((EmailVerificationCode?)null);
         codeRepository
             .Setup(repository => repository.SaveAsync(It.IsAny<EmailVerificationCode>()))

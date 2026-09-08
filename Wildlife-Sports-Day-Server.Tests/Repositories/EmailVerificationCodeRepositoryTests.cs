@@ -8,6 +8,29 @@ namespace Wildlife_Sports_Day_Server.Tests.Repositories;
 
 public class EmailVerificationCodeRepositoryTests
 {
+    [Fact]
+    public async Task FindLatestSentByEmailAsync_LockedCodeFollowedBySendFailure_ReturnsLockedCode()
+    {
+        // Given
+        await using var database = await RelationalTestDatabase.CreateAsync();
+        await using var context = database.CreateContext();
+        var repository = new EmailVerificationCodeRepository(context);
+        var lockedCode = CreateCode();
+        lockedCode.Status = EmailVerificationCodeStatus.AttemptLimitExceeded;
+        lockedCode.CreatedAt = DateTime.UtcNow.AddSeconds(-10);
+        await repository.SaveAsync(lockedCode);
+        var failedCode = CreateCode();
+        failedCode.Status = EmailVerificationCodeStatus.SendFailed;
+        await repository.SaveAsync(failedCode);
+
+        // When
+        var result = await repository.FindLatestSentByEmailAsync(lockedCode.Email);
+
+        // Then
+        Assert.NotNull(result);
+        Assert.Equal(lockedCode.Id, result.Id);
+    }
+
     [Theory]
     [InlineData(EmailVerificationCodeStatus.Revoked)]
     [InlineData(EmailVerificationCodeStatus.AttemptLimitExceeded)]
