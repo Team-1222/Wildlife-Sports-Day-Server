@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { dirname } from "node:path";
-import { ensureDir, getString, logPath, outputPromptContext, parsePayload, readStdin, writeText } from "./common.mjs";
+import { ensureDir, fileExists, getString, logPath, outputPromptContext, parsePayload, readStdin, readTextIfSmall, writeText } from "./common.mjs";
+import { resolveCommitIssueContext } from "./commit_issue_context.mjs";
 
 const raw = await readStdin();
 const payload = parsePayload(raw);
@@ -13,6 +14,15 @@ if (!prompt) {
 const lower = prompt.toLowerCase();
 const snippets = [];
 const commitIssueContextPath = logPath("commit_issue_context.json");
+let previousCommitContext = null;
+try {
+  if (fileExists(commitIssueContextPath)) {
+    previousCommitContext = parsePayload(readTextIfSmall(commitIssueContextPath) ?? "");
+  }
+} catch {
+  // 문맥 파일을 읽지 못해도 새 커밋 요청의 이슈 확인은 계속합니다.
+}
+const commitContext = resolveCommitIssueContext(prompt, previousCommitContext, getString(payload, "session_id") || null);
 
 function addSnippet(snippet) {
   if (!snippets.includes(snippet)) {
@@ -32,24 +42,15 @@ if (/(migration|efcore|dbcontext|entity|repository|database|postgres|마이그�
   addSnippet("[context] EF Core rules: DbContext used only inside Repository. Use Eager Loading (.Include) to prevent N+1. Migration files must be committed. Column names: snake_case via FluentAPI. Load migration-guide and backup-guide before DB-impacting work.");
 }
 
-if (/(commit|git|pr|pull request|커밋|깃|풀리퀘스트|풀 리퀘스트|피알|PR)/i.test(lower)) {
+if (commitContext) {
   addSnippet("[context] Commit/PR rules: commit title is type: 한국어설명 (no period, no scope). If a related issue exists, first body line is #<issue-number>. Split commits by implementation work unit and, when addressing review feedback, by each individual code-review finding. One independently reviewable finding per commit; never combine distinct findings merely because they touch related files. Do not push or open PRs without explicit approval. PRs with DB impact need backup and rollback notes.");
 
-  const issueMatch = prompt.match(/#\d+/);
-  const noIssueConfirmed = /(관련\s*)?이슈\s*(없|없어|없음)|이슈\s*번호\s*(없|없어|없음)|no\s+(related\s+)?issue|without\s+issue/i.test(prompt);
-  const context = {
-    timestamp: new Date().toISOString(),
-    issueRef: issueMatch?.[0] ?? null,
-    noIssueConfirmed,
-    needsIssueConfirmation: !issueMatch && !noIssueConfirmed
-  };
-
   ensureDir(dirname(commitIssueContextPath));
-  writeText(commitIssueContextPath, `${JSON.stringify(context, null, 2)}\n`);
+  writeText(commitIssueContextPath, `${JSON.stringify(commitContext, null, 2)}\n`);
 
-  if (issueMatch) {
-    addSnippet(`[context] Commit issue/PR reference for this prompt: ${issueMatch[0]}. Use this exact body reference for commits in this turn; do not reuse issue refs from earlier turns.`);
-  } else if (noIssueConfirmed) {
+  if (commitContext.issueRef) {
+    addSnippet(`[context] Commit issue/PR reference for this prompt: ${commitContext.issueRef}. Use this exact body reference for commits in this turn; do not reuse issue refs from earlier turns.`);
+  } else if (commitContext.noIssueConfirmed) {
     addSnippet("[context] The current prompt says there is no related issue. Do not add an issue reference to commit bodies.");
   } else {
     addSnippet("[context] Commit issue/PR reference is missing from this prompt. Ask the user before committing; do not reuse issue refs from earlier turns.");
