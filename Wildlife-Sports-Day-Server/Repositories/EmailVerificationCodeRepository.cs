@@ -105,22 +105,27 @@ public class EmailVerificationCodeRepository(AppDbContext dbContext) : IEmailVer
         await dbContext.SaveChangesAsync();
     }
 
-    public async Task RevokeActiveByEmailExceptAsync(string email, int retainedCodeId)
+    public async Task RevokeOlderActiveByEmailAsync(string email, int retainedCodeId)
     {
-        var codes = await dbContext.EmailVerificationCodes
-            .Where(code => code.Email == email
-                && code.Id != retainedCodeId
-                && (code.Status == EmailVerificationCodeStatus.Pending
-                    || code.Status == EmailVerificationCodeStatus.Verified))
-            .ToListAsync();
-
-        var now = DateTime.UtcNow;
-        foreach (var code in codes)
+        var retainedCode = await dbContext.EmailVerificationCodes
+            .AsNoTracking()
+            .Where(code => code.Email == email && code.Id == retainedCodeId)
+            .Select(code => new { code.CreatedAt })
+            .SingleOrDefaultAsync();
+        if (retainedCode is null)
         {
-            code.Status = EmailVerificationCodeStatus.Revoked;
-            code.UnavailableAt = now;
+            return;
         }
 
-        await dbContext.SaveChangesAsync();
+        var now = DateTime.UtcNow;
+        await dbContext.EmailVerificationCodes
+            .Where(code => code.Email == email
+                && (code.CreatedAt < retainedCode.CreatedAt
+                    || (code.CreatedAt == retainedCode.CreatedAt && code.Id < retainedCodeId))
+                && (code.Status == EmailVerificationCodeStatus.Pending
+                    || code.Status == EmailVerificationCodeStatus.Verified))
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(code => code.Status, EmailVerificationCodeStatus.Revoked)
+                .SetProperty(code => code.UnavailableAt, now));
     }
 }

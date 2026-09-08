@@ -8,6 +8,43 @@ namespace Wildlife_Sports_Day_Server.Tests.Repositories;
 
 public class EmailVerificationCodeRepositoryTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RevokeOlderActiveByEmailAsync_OverlappingSends_KeepsNewestCode(bool newerCompletesFirst)
+    {
+        // Given: 발송 요청 두 개가 모두 저장되었으며 SMTP 완료 순서가 달라질 수 있습니다.
+        await using var database = await RelationalTestDatabase.CreateAsync();
+        await using var firstContext = database.CreateContext();
+        await using var secondContext = database.CreateContext();
+        var firstRepository = new EmailVerificationCodeRepository(firstContext);
+        var secondRepository = new EmailVerificationCodeRepository(secondContext);
+        var olderCode = await firstRepository.SaveAsync(CreateCode());
+        var newerCode = CreateCode();
+        newerCode.CreatedAt = olderCode.CreatedAt;
+        await secondRepository.SaveAsync(newerCode);
+
+        // When: 같은 생성 시각에서도 ID로 순서를 정하고 이전 요청은 최신 코드를 폐기하지 않습니다.
+        if (newerCompletesFirst)
+        {
+            await secondRepository.RevokeOlderActiveByEmailAsync(newerCode.Email, newerCode.Id);
+            await firstRepository.RevokeOlderActiveByEmailAsync(olderCode.Email, olderCode.Id);
+        }
+        else
+        {
+            await firstRepository.RevokeOlderActiveByEmailAsync(olderCode.Email, olderCode.Id);
+            await secondRepository.RevokeOlderActiveByEmailAsync(newerCode.Email, newerCode.Id);
+        }
+
+        // Then
+        await using var readContext = database.CreateContext();
+        var activeCodes = await readContext.EmailVerificationCodes
+            .Where(code => code.Status == EmailVerificationCodeStatus.Pending).ToListAsync();
+        Assert.Equal(newerCode.Id, Assert.Single(activeCodes).Id);
+        Assert.Equal(EmailVerificationCodeStatus.Revoked,
+            (await readContext.EmailVerificationCodes.FindAsync(olderCode.Id))!.Status);
+    }
+
     [Fact]
     public async Task FindLatestSentByEmailAsync_LockedCodeFollowedBySendFailure_ReturnsLockedCode()
     {

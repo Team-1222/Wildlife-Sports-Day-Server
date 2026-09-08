@@ -73,7 +73,7 @@ public class AuthService(
             throw new AppException("인증 코드 발송에 실패했습니다.", StatusCodes.Status500InternalServerError);
         }
 
-        await emailVerificationCodeRepository.RevokeActiveByEmailExceptAsync(normalizedEmail, verificationCode.Id);
+        await emailVerificationCodeRepository.RevokeOlderActiveByEmailAsync(normalizedEmail, verificationCode.Id);
 
         logger.LogInformation(
             "Sent verification email for verification code {EmailVerificationCodeId}",

@@ -51,7 +51,7 @@ public class AuthServiceTests
         Assert.Equal("user@example.com", savedCode.Email);
         Assert.Equal(EmailVerificationCodeStatus.Pending, savedCode.Status);
         Assert.Null(savedCode.UnavailableAt);
-        codeRepository.Verify(repository => repository.RevokeActiveByEmailExceptAsync("user@example.com", savedCode.Id), Times.Once);
+        codeRepository.Verify(repository => repository.RevokeOlderActiveByEmailAsync("user@example.com", savedCode.Id), Times.Once);
     }
 
     [Fact]
@@ -83,7 +83,7 @@ public class AuthServiceTests
         Assert.NotNull(savedCode);
         Assert.Equal("user@example.com", savedCode.Email);
         userRepository.Verify(repository => repository.ExistsByEmailAsync("user@example.com"), Times.Once);
-        codeRepository.Verify(repository => repository.RevokeActiveByEmailExceptAsync("user@example.com", savedCode.Id), Times.Once);
+        codeRepository.Verify(repository => repository.RevokeOlderActiveByEmailAsync("user@example.com", savedCode.Id), Times.Once);
         emailSender.Verify(sender => sender.SendAsync("user@example.com", It.IsAny<string>(), It.IsAny<string>()), Times.Once);
     }
 
@@ -123,7 +123,7 @@ public class AuthServiceTests
         Assert.Null(existingCode.UnavailableAt);
         codeRepository.Verify(repository => repository.UpdateAsync(savedCode), Times.Once);
         codeRepository.Verify(
-            repository => repository.RevokeActiveByEmailExceptAsync(It.IsAny<string>(), It.IsAny<int>()),
+            repository => repository.RevokeOlderActiveByEmailAsync(It.IsAny<string>(), It.IsAny<int>()),
             Times.Never);
     }
 
@@ -147,7 +147,7 @@ public class AuthServiceTests
         Assert.Equal(StatusCodes.Status429TooManyRequests, exception.StatusCode);
         Assert.Equal("인증 코드는 1분 후에 재발송할 수 있습니다.", exception.Message);
         codeRepository.Verify(
-            repository => repository.RevokeActiveByEmailExceptAsync(It.IsAny<string>(), It.IsAny<int>()),
+            repository => repository.RevokeOlderActiveByEmailAsync(It.IsAny<string>(), It.IsAny<int>()),
             Times.Never);
         codeRepository.Verify(repository => repository.SaveAsync(It.IsAny<EmailVerificationCode>()), Times.Never);
         emailSender.Verify(sender => sender.SendAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
@@ -205,7 +205,7 @@ public class AuthServiceTests
         Assert.NotNull(savedCode);
         Assert.Equal(EmailVerificationCodeStatus.Pending, savedCode.Status);
         emailSender.Verify(sender => sender.SendAsync("user@example.com", It.IsAny<string>(), It.IsAny<string>()), Times.Once);
-        codeRepository.Verify(repository => repository.RevokeActiveByEmailExceptAsync("user@example.com", savedCode.Id), Times.Once);
+        codeRepository.Verify(repository => repository.RevokeOlderActiveByEmailAsync("user@example.com", savedCode.Id), Times.Once);
     }
 
     [Fact]
