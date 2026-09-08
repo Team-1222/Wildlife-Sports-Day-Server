@@ -42,6 +42,33 @@ public class UserRepository(AppDbContext dbContext) : IUserRepository
         }
     }
 
+    public async Task<UserRegistrationResult> SaveWithVerificationAsync(
+        User user, int verificationCodeId, DateTime minimumVerifiedAtUtc)
+    {
+        await using var transaction = await dbContext.Database.BeginTransactionAsync();
+        var now = DateTime.UtcNow;
+        var consumedCount = await dbContext.EmailVerificationCodes
+            .Where(code => code.Id == verificationCodeId
+                && code.Email == user.Email
+                && code.Status == EmailVerificationCodeStatus.Verified
+                && code.VerifiedAt >= minimumVerifiedAtUtc)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(code => code.Status, EmailVerificationCodeStatus.Consumed)
+                .SetProperty(code => code.UnavailableAt, now));
+        if (consumedCount != 1)
+        {
+            return UserRegistrationResult.VerificationUnavailable;
+        }
+
+        if (await SaveIfUniqueAsync(user) is null)
+        {
+            return UserRegistrationResult.Duplicate;
+        }
+
+        await transaction.CommitAsync();
+        return UserRegistrationResult.Saved;
+    }
+
     private static bool IsUniqueConstraintViolation(DbUpdateException exception) =>
         exception.GetBaseException() is PostgresException postgresException
         && postgresException.SqlState == PostgresErrorCodes.UniqueViolation;

@@ -590,7 +590,7 @@ public class AuthServiceTests : IDisposable
         Assert.Equal("이메일 인증이 완료되지 않았습니다.", exception.Message);
         userRepository.Verify(repository => repository.ExistsByEmailAsync(It.IsAny<string>()), Times.Never);
         codeRepository.Verify(repository => repository.FindByIdAsync(It.IsAny<int>()), Times.Never);
-        userRepository.Verify(repository => repository.SaveIfUniqueAsync(It.IsAny<User>()), Times.Never);
+        userRepository.Verify(repository => repository.SaveWithVerificationAsync(It.IsAny<User>(), It.IsAny<int>(), It.IsAny<DateTime>()), Times.Never);
     }
 
     [Fact]
@@ -609,12 +609,12 @@ public class AuthServiceTests : IDisposable
         userRepository.Setup(repository => repository.ExistsByEmailAsync("user@example.com")).ReturnsAsync(false);
         userRepository.Setup(repository => repository.ExistsByNicknameAsync("nickname")).ReturnsAsync(false);
         userRepository
-            .Setup(repository => repository.SaveIfUniqueAsync(It.IsAny<User>()))
-            .Callback<User>(user => savedUser = user)
-            .ReturnsAsync((User user) =>
+            .Setup(repository => repository.SaveWithVerificationAsync(It.IsAny<User>(), It.IsAny<int>(), It.IsAny<DateTime>()))
+            .Callback<User, int, DateTime>((user, _, _) => savedUser = user)
+            .ReturnsAsync((User user, int _, DateTime _) =>
             {
                 user.Id = 7;
-                return user;
+                return UserRegistrationResult.Saved;
             });
         codeRepository.Setup(repository => repository.FindByIdAsync(verificationCode.Id)).ReturnsAsync(verificationCode);
 
@@ -631,11 +631,11 @@ public class AuthServiceTests : IDisposable
         Assert.Equal("nickname", savedUser.Nickname);
         Assert.NotEqual(CreateValidCredential(), savedUser.PasswordHash);
         Assert.True(BCrypt.Net.BCrypt.Verify(CreateValidCredential(), savedUser.PasswordHash));
-        Assert.Equal(EmailVerificationCodeStatus.Consumed, verificationCode.Status);
-        Assert.NotNull(verificationCode.UnavailableAt);
         Assert.Null(httpContext.Session.GetString("EmailVerification.VerifiedEmail"));
         Assert.Null(httpContext.Session.GetInt32("EmailVerification.VerifiedCodeId"));
-        codeRepository.Verify(repository => repository.UpdateAsync(verificationCode), Times.Once);
+        userRepository.Verify(repository => repository.SaveWithVerificationAsync(
+            It.IsAny<User>(), verificationCode.Id, It.IsAny<DateTime>()), Times.Once);
+        codeRepository.Verify(repository => repository.UpdateAsync(It.IsAny<EmailVerificationCode>()), Times.Never);
     }
 
     [Fact]
@@ -657,7 +657,7 @@ public class AuthServiceTests : IDisposable
         Assert.Equal("이미 사용 중인 이메일입니다.", exception.Message);
         userRepository.Verify(repository => repository.ExistsByNicknameAsync(It.IsAny<string>()), Times.Never);
         codeRepository.Verify(repository => repository.FindByIdAsync(It.IsAny<int>()), Times.Never);
-        userRepository.Verify(repository => repository.SaveIfUniqueAsync(It.IsAny<User>()), Times.Never);
+        userRepository.Verify(repository => repository.SaveWithVerificationAsync(It.IsAny<User>(), It.IsAny<int>(), It.IsAny<DateTime>()), Times.Never);
     }
 
     [Fact]
@@ -675,8 +675,8 @@ public class AuthServiceTests : IDisposable
         userRepository.Setup(repository => repository.ExistsByEmailAsync("user@example.com")).ReturnsAsync(false);
         userRepository.Setup(repository => repository.ExistsByNicknameAsync("nickname")).ReturnsAsync(false);
         userRepository
-            .Setup(repository => repository.SaveIfUniqueAsync(It.IsAny<User>()))
-            .ReturnsAsync((User?)null);
+            .Setup(repository => repository.SaveWithVerificationAsync(It.IsAny<User>(), It.IsAny<int>(), It.IsAny<DateTime>()))
+            .ReturnsAsync(UserRegistrationResult.Duplicate);
         codeRepository.Setup(repository => repository.FindByIdAsync(verificationCode.Id)).ReturnsAsync(verificationCode);
 
         var service = CreateService(userRepository, codeRepository, emailSender);
@@ -719,7 +719,7 @@ public class AuthServiceTests : IDisposable
         Assert.Null(httpContext.Session.GetString("EmailVerification.VerifiedEmail"));
         Assert.Null(httpContext.Session.GetInt32("EmailVerification.VerifiedCodeId"));
         codeRepository.Verify(repository => repository.UpdateAsync(verificationCode), Times.Once);
-        userRepository.Verify(repository => repository.SaveIfUniqueAsync(It.IsAny<User>()), Times.Never);
+        userRepository.Verify(repository => repository.SaveWithVerificationAsync(It.IsAny<User>(), It.IsAny<int>(), It.IsAny<DateTime>()), Times.Never);
     }
 
     [Fact]
@@ -741,7 +741,7 @@ public class AuthServiceTests : IDisposable
         Assert.Equal(StatusCodes.Status409Conflict, exception.StatusCode);
         Assert.Equal("이미 사용 중인 닉네임입니다.", exception.Message);
         codeRepository.Verify(repository => repository.FindLatestActiveByEmailAsync(It.IsAny<string>()), Times.Never);
-        userRepository.Verify(repository => repository.SaveIfUniqueAsync(It.IsAny<User>()), Times.Never);
+        userRepository.Verify(repository => repository.SaveWithVerificationAsync(It.IsAny<User>(), It.IsAny<int>(), It.IsAny<DateTime>()), Times.Never);
     }
 
     [Fact]
@@ -760,6 +760,58 @@ public class AuthServiceTests : IDisposable
         Assert.Equal(StatusCodes.Status400BadRequest, exception.StatusCode);
         Assert.Equal("비밀번호가 일치하지 않습니다.", exception.Message);
         userRepository.Verify(repository => repository.ExistsByEmailAsync(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task RegisterAsync_VerificationRevokedDuringSave_DoesNotReturnSuccess()
+    {
+        // Given
+        var userRepository = new Mock<IUserRepository>();
+        var codeRepository = new Mock<IEmailVerificationCodeRepository>();
+        var emailSender = new Mock<IEmailSender>();
+        var code = CreatePendingCode("123456", DateTime.UtcNow.AddMinutes(5));
+        code.Id = 30;
+        code.Status = EmailVerificationCodeStatus.Verified;
+        code.VerifiedAt = DateTime.UtcNow;
+        codeRepository.Setup(repository => repository.FindByIdAsync(code.Id)).ReturnsAsync(code);
+        userRepository.Setup(repository => repository.SaveWithVerificationAsync(
+            It.IsAny<User>(), code.Id, It.IsAny<DateTime>())).ReturnsAsync(UserRegistrationResult.VerificationUnavailable);
+        var context = CreateVerifiedEmailHttpContext(code.Id);
+
+        // When
+        var exception = await Assert.ThrowsAsync<AppException>(() =>
+            CreateService(userRepository, codeRepository, emailSender).RegisterAsync(CreateRegisterRequest(), context));
+
+        // Then
+        Assert.Equal(StatusCodes.Status400BadRequest, exception.StatusCode);
+        Assert.Null(context.Session.GetInt32("EmailVerification.VerifiedCodeId"));
+    }
+
+    [Fact]
+    public async Task RegisterAsync_SessionCommitFailsAfterAccountCommit_ReturnsCreatedAccount()
+    {
+        // Given
+        var userRepository = new Mock<IUserRepository>();
+        var codeRepository = new Mock<IEmailVerificationCodeRepository>();
+        var emailSender = new Mock<IEmailSender>();
+        var code = CreatePendingCode("123456", DateTime.UtcNow.AddMinutes(5));
+        code.Id = 31;
+        code.Status = EmailVerificationCodeStatus.Verified;
+        code.VerifiedAt = DateTime.UtcNow;
+        codeRepository.Setup(repository => repository.FindByIdAsync(code.Id)).ReturnsAsync(code);
+        userRepository.Setup(repository => repository.SaveWithVerificationAsync(
+            It.IsAny<User>(), code.Id, It.IsAny<DateTime>()))
+            .Callback<User, int, DateTime>((user, _, _) => user.Id = 8)
+            .ReturnsAsync(UserRegistrationResult.Saved);
+        var context = CreateVerifiedEmailHttpContext(code.Id);
+        ((TestSession)context.Session).FailCommit = true;
+
+        // When
+        var response = await CreateService(userRepository, codeRepository, emailSender)
+            .RegisterAsync(CreateRegisterRequest(), context);
+
+        // Then
+        Assert.Equal(8, response.UserId);
     }
 
     private AuthService CreateService(
@@ -879,6 +931,7 @@ public class AuthServiceTests : IDisposable
     private sealed class TestSession : ISession
     {
         private readonly Dictionary<string, byte[]> values = new();
+        public bool FailCommit { get; set; }
 
         public bool IsAvailable => true;
         public string Id => "test-session";
@@ -888,7 +941,7 @@ public class AuthServiceTests : IDisposable
             Task.CompletedTask;
 
         public Task CommitAsync(CancellationToken cancellationToken = default) =>
-            Task.CompletedTask;
+            FailCommit ? Task.FromException(new IOException("Simulate session storage failure")) : Task.CompletedTask;
 
         public bool TryGetValue(string key, out byte[] value) =>
             values.TryGetValue(key, out value!);

@@ -10,4 +10,5 @@ public interface IUserRepository
     Task<User?> FindByNicknameAsync(string nickname);
     Task<User> SaveAsync(User user);
     Task<User?> SaveIfUniqueAsync(User user);
+    Task<UserRegistrationResult> SaveWithVerificationAsync(User user, int verificationCodeId, DateTime minimumVerifiedAtUtc);
 }

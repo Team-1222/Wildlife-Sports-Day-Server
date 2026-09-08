@@ -206,24 +206,41 @@ public class AuthService(
             CreatedAt = DateTime.UtcNow
         };
 
-        var savedUser = await userRepository.SaveIfUniqueAsync(user)
-            ?? throw new AppException("이미 사용 중인 이메일 또는 닉네임입니다.", StatusCodes.Status409Conflict);
+        var registrationResult = await userRepository.SaveWithVerificationAsync(
+            user, verificationCode.Id, DateTime.UtcNow.AddMinutes(-VerifiedSignupMinutes));
+        if (registrationResult == UserRegistrationResult.Duplicate)
+        {
+            throw new AppException("이미 사용 중인 이메일 또는 닉네임입니다.", StatusCodes.Status409Conflict);
+        }
 
-        verificationCode.Status = EmailVerificationCodeStatus.Consumed;
-        verificationCode.UnavailableAt = DateTime.UtcNow;
-        await emailVerificationCodeRepository.UpdateAsync(verificationCode);
+        if (registrationResult == UserRegistrationResult.VerificationUnavailable)
+        {
+            ClearVerifiedEmailSession(httpContext);
+            await httpContext.Session.CommitAsync();
+            throw new AppException("이메일 인증이 완료되지 않았습니다.", StatusCodes.Status400BadRequest);
+        }
+
         ClearVerifiedEmailSession(httpContext);
-        await httpContext.Session.CommitAsync();
+        try
+        {
+            await httpContext.Session.CommitAsync();
+        }
+        catch (Exception exception)
+        {
+            // 계정과 코드 소비가 이미 커밋되었으므로 가입 실패로 응답하지 않습니다.
+            logger.LogWarning("Failed to clear registration session with exception type {ExceptionType}",
+                exception.GetType().Name);
+        }
 
-        logger.LogInformation("Registered new user {UserId}", savedUser.Id);
+        logger.LogInformation("Registered new user {UserId}", user.Id);
 
         return new RegisterResponse
         {
-            UserId = savedUser.Id,
-            Username = savedUser.Nickname,
-            Email = savedUser.Email,
+            UserId = user.Id,
+            Username = user.Nickname,
+            Email = user.Email,
             Role = DefaultUserRole,
-            CreatedAtUtc = savedUser.CreatedAt
+            CreatedAtUtc = user.CreatedAt
         };
     }
 
