@@ -114,6 +114,7 @@ app.UseHttpsRedirection();
 app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseMiddleware<SessionSerializationMiddleware>();
 app.UseSession();
 
 app.MapControllers();
