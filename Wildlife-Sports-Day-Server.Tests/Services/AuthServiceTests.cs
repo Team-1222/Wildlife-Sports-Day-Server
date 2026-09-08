@@ -321,6 +321,43 @@ public class AuthServiceTests
     }
 
     [Fact]
+    public async Task LoginAsync_ConcurrentFailures_RejectsSixthAttemptBeforeLookup()
+    {
+        // Given: 첫 요청을 사용자 조회에서 대기시킨 뒤 같은 키로 요청을 겹칩니다.
+        var userRepository = new Mock<IUserRepository>();
+        var codeRepository = new Mock<IEmailVerificationCodeRepository>();
+        var emailSender = new Mock<IEmailSender>();
+        var nickname = Guid.NewGuid().ToString("N");
+        var lookupStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseLookup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var lookupCount = 0;
+        userRepository.Setup(repository => repository.FindByNicknameAsync(nickname)).Returns(async () =>
+        {
+            Interlocked.Increment(ref lookupCount);
+            lookupStarted.TrySetResult();
+            await releaseLookup.Task;
+            return (User?)null;
+        });
+        var service = CreateService(userRepository, codeRepository, emailSender);
+        var request = CreateLoginRequest(nickname);
+        var firstAttempt = Assert.ThrowsAsync<AppException>(() => service.LoginAsync(request, CreateHttpContext()));
+        await lookupStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // When
+        var otherAttempts = Enumerable.Range(0, 5).Select(_ =>
+            Assert.ThrowsAsync<AppException>(() => service.LoginAsync(request, CreateHttpContext()))).ToArray();
+        var lookupsBeforeRelease = Volatile.Read(ref lookupCount);
+        releaseLookup.SetResult();
+        var results = await Task.WhenAll(otherAttempts.Prepend(firstAttempt)).WaitAsync(TimeSpan.FromSeconds(15));
+
+        // Then
+        Assert.Equal(1, lookupsBeforeRelease);
+        Assert.Equal(5, results.Count(result => result.StatusCode == StatusCodes.Status401Unauthorized));
+        Assert.Single(results, result => result.StatusCode == StatusCodes.Status429TooManyRequests);
+        userRepository.Verify(repository => repository.FindByNicknameAsync(nickname), Times.Exactly(5));
+    }
+
+    [Fact]
     public async Task VerifyEmailCodeAsync_ValidCode_MarksCodeVerified()
     {
         var userRepository = new Mock<IUserRepository>();

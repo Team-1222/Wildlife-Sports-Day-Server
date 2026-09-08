@@ -9,6 +9,7 @@ using Wildlife_Sports_Day_Server.Dtos.Requests;
 using Wildlife_Sports_Day_Server.Dtos.Responses;
 using Wildlife_Sports_Day_Server.Entities;
 using Wildlife_Sports_Day_Server.Exceptions;
+using Wildlife_Sports_Day_Server.Infrastructure.Concurrency;
 using Wildlife_Sports_Day_Server.Repositories;
 
 namespace Wildlife_Sports_Day_Server.Services;
@@ -27,6 +28,7 @@ public class AuthService(
     private const string DefaultUserRole = "Player";
     private static readonly TimeSpan LoginAttemptWindow = TimeSpan.FromMinutes(5);
     private static readonly ConcurrentDictionary<string, LoginAttemptState> LoginAttempts = new();
+    private static readonly StripedAsyncLock LoginAttemptLocks = new();
     private static readonly string DummyPasswordHash = BCrypt.Net.BCrypt.HashPassword(Guid.NewGuid().ToString("N"));
 
     public async Task<MessageResponse> SendVerificationEmailAsync(SendVerificationCodeRequest request)
@@ -232,6 +234,7 @@ public class AuthService(
     {
         var normalizedNickname = NormalizeNickname(request.Nickname);
         var loginAttemptKey = BuildLoginAttemptKey(normalizedNickname, httpContext);
+        using var attemptLock = await LoginAttemptLocks.AcquireAsync(loginAttemptKey, httpContext.RequestAborted);
         if (IsLoginAttemptBlocked(loginAttemptKey))
         {
             throw new AppException("로그인 시도 횟수를 초과했습니다.", StatusCodes.Status429TooManyRequests);
