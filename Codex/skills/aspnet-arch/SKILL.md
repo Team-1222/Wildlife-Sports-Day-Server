@@ -56,11 +56,16 @@ builder.Services.AddSession(options =>
 public class AuthController(IAuthService authService) : ControllerBase
 {
     [HttpPost("register")]
-    public async Task<ActionResult<ApiResponse<RegisterResponse>>> Register(
+    public async Task<ActionResult<ApiResponse<RegisterResponse>>> RegisterAsync(
         [FromBody] RegisterRequest request)
     {
-        var result = await authService.RegisterAsync(request);
-        return Ok(ApiResponse<RegisterResponse>.Success(result));
+        var result = await authService.RegisterAsync(request, HttpContext);
+        return Ok(new ApiResponse<RegisterResponse>
+        {
+            Success = true,
+            Message = "회원가입이 완료되었습니다.",
+            Data = result
+        });
     }
 }
 ```
@@ -77,7 +82,7 @@ public class AuthController(IAuthService authService) : ControllerBase
 ```csharp
 public interface IAuthService
 {
-    Task<RegisterResponse> RegisterAsync(RegisterRequest request);
+    Task<RegisterResponse> RegisterAsync(RegisterRequest request, HttpContext httpContext);
     Task<LoginResponse> LoginAsync(LoginRequest request, HttpContext httpContext);
     Task SendVerificationEmailAsync(string email);
     Task VerifyEmailCodeAsync(string email, string code);
@@ -88,7 +93,7 @@ public class AuthService(
     IEmailSender emailSender,
     ILogger<AuthService> logger) : IAuthService
 {
-    public async Task<RegisterResponse> RegisterAsync(RegisterRequest request)
+    public async Task<RegisterResponse> RegisterAsync(RegisterRequest request, HttpContext httpContext)
     {
         // Business logic only — no direct DB access
     }
@@ -142,20 +147,25 @@ public class ExceptionMiddleware(RequestDelegate next, ILogger<ExceptionMiddlewa
         catch (AppException ex)
         {
             logger.LogWarning("Expected exception: {Message}", ex.Message);
-            await WriteErrorResponse(context, ex.StatusCode, ex.Message);
+            await WriteErrorResponseAsync(context, ex.StatusCode, ex.Message);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Unexpected error occurred");
-            await WriteErrorResponse(context, 500, "서버 내부 오류가 발생했습니다.");
+            await WriteErrorResponseAsync(context, 500, "서버 내부 오류가 발생했습니다.");
         }
     }
 
-    private static async Task WriteErrorResponse(HttpContext context, int statusCode, string message)
+    private static async Task WriteErrorResponseAsync(HttpContext context, int statusCode, string message)
     {
         context.Response.StatusCode = statusCode;
         context.Response.ContentType = "application/json";
-        var response = ApiResponse<object>.Fail(message);
+        var response = new ApiResponse<object>
+        {
+            Success = false,
+            Message = message,
+            Code = "ERROR"
+        };
         await context.Response.WriteAsJsonAsync(response);
     }
 }
@@ -166,20 +176,13 @@ public class ExceptionMiddleware(RequestDelegate next, ILogger<ExceptionMiddlewa
 ## ApiResponse Wrapper
 
 ```csharp
-public class ApiResponse<T>
+public sealed class ApiResponse<T>
 {
-    public bool Success { get; init; }
+    public required bool Success { get; init; }
+    public required string Message { get; init; }
+    public string? Code { get; init; }
     public T? Data { get; init; }
-    public ErrorDetail? Error { get; init; }
-
-    public static ApiResponse<T> Success(T data) =>
-        new() { Success = true, Data = data };
-
-    public static ApiResponse<T> Fail(string message, string? code = null) =>
-        new() { Success = false, Error = new ErrorDetail(code ?? "ERROR", message) };
 }
-
-public record ErrorDetail(string Code, string Message);
 ```
 
 ---
