@@ -56,7 +56,9 @@ if (commitContext) {
   ensureDir(dirname(commitIssueContextPath));
   writeText(commitIssueContextPath, `${JSON.stringify(commitContext, null, 2)}\n`);
 
-  if (commitContext.issueRef) {
+  if (commitContext.issueRefs.length > 1) {
+    addSnippet(`[context] Allowed commit body references for this prompt: ${commitContext.issueRefs.join(", ")}. Use exactly one allowed reference per commit, following the user's allocation by domain or review finding. Do not reuse issue refs from earlier turns.`);
+  } else if (commitContext.issueRef) {
     addSnippet(`[context] Commit issue/PR reference for this prompt: ${commitContext.issueRef}. Use this exact body reference for commits in this turn; do not reuse issue refs from earlier turns.`);
   } else if (commitContext.noIssueConfirmed) {
     addSnippet("[context] The current prompt says there is no related issue. Do not add an issue reference to commit bodies.");

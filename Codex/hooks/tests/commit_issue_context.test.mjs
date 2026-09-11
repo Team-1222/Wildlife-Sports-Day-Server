@@ -148,3 +148,29 @@ test("세션 식별자는 경로에 직접 포함하지 않습니다", () => {
   assert.match(commitIssueContextFileName("../../outside"), /^commit_issue_context\.[a-f0-9]{64}\.json$/);
   assert.notEqual(commitIssueContextFileName("a"), commitIssueContextFileName("b"));
 });
+
+test("사용자가 명시한 여러 커밋 번호를 중복 없이 보존합니다", () => {
+  const context = resolveCommitIssueContext("AI 커밋은 #1, 일반 코드는 #13, 문서도 #13", null, "session-a");
+  assert.deepEqual(context.issueRefs, ["#1", "#13"]);
+  assert.equal(context.issueRef, "#1");
+  assert.equal(context.needsIssueConfirmation, false);
+  const pending = resolveCommitIssueContext("커밋해줘", null, "session-a");
+  assert.deepEqual(resolveCommitIssueContext("13", pending, "session-a").issueRefs, ["#13"]);
+});
+
+test("여러 지정 번호 중 커밋마다 하나만 허용하며 새 요청은 이전 번호를 대체합니다", () => {
+  withHookFixture(({ submit, guard }) => {
+    const output = submit("session-a", "AI 커밋은 #1, 일반 코드는 #13으로 커밋해줘");
+    assert.match(output, /Allowed commit body references.*#1, #13/);
+    assert.equal(guard("session-a", "#1"), "");
+    assert.equal(guard("session-a", "#13"), "");
+    for (const reference of ["#2", "", "#1 #13"]) {
+      assert.match(guard("session-a", reference), /Expected exactly one of/);
+    }
+    submit("session-a", "빌드 결과 알려줘");
+    assert.equal(guard("session-a", "#13"), "");
+    submit("session-a", "다음 커밋은 #2");
+    assert.match(guard("session-a", "#13"), /does not match/);
+    assert.equal(guard("session-a", "#2"), "");
+  });
+});

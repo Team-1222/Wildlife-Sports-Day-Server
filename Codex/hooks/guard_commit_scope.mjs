@@ -55,28 +55,20 @@ function issueRefsFrom(messages) {
 const commitMessages = extractCommitMessages(command);
 const commitIssueRefs = issueRefsFrom(commitMessages.slice(1));
 const issueContext = latestIssueContext();
+const expectedIssueRefs = issueContext?.issueRefs ?? (issueContext?.issueRef ? [issueContext.issueRef] : []);
 
-if (issueContext?.issueRef) {
-  if (!commitIssueRefs.includes(issueContext.issueRef)) {
+if (expectedIssueRefs.length > 0) {
+  const distinctRefs = [...new Set(commitIssueRefs)];
+  if (distinctRefs.length !== 1 || !expectedIssueRefs.includes(distinctRefs[0])) {
     outputBlock([
       "[commit-issue-hook] Commit body issue reference does not match the latest user-provided issue reference.",
-      `Expected: ${issueContext.issueRef}`,
+      `Expected exactly one of: ${expectedIssueRefs.join(", ")}`,
       `Found: ${commitIssueRefs.length > 0 ? commitIssueRefs.join(", ") : "(none)"}`,
       "Ask the user before committing if the issue/PR number is unclear."
     ].join("\n"));
     process.exit(0);
   }
 
-  const unexpectedRefs = commitIssueRefs.filter((ref) => ref !== issueContext.issueRef);
-  if (unexpectedRefs.length > 0) {
-    outputBlock([
-      "[commit-issue-hook] Commit body includes an issue reference different from the latest user prompt.",
-      `Expected only: ${issueContext.issueRef}`,
-      `Unexpected: ${unexpectedRefs.join(", ")}`,
-      "Ask the user before committing if the issue/PR number is unclear."
-    ].join("\n"));
-    process.exit(0);
-  }
 } else if (issueContext?.noIssueConfirmed) {
   if (commitIssueRefs.length > 0) {
     outputBlock([
