@@ -9,6 +9,7 @@ using Wildlife_Sports_Day_Server.Dtos.Responses;
 using Wildlife_Sports_Day_Server.Entities;
 using Wildlife_Sports_Day_Server.Exceptions;
 using Wildlife_Sports_Day_Server.Infrastructure.Concurrency;
+using Wildlife_Sports_Day_Server.Infrastructure.Security;
 using Wildlife_Sports_Day_Server.Repositories;
 
 namespace Wildlife_Sports_Day_Server.Services;
@@ -150,6 +151,7 @@ public class AuthService(
 
     public async Task<RegisterResponse> RegisterAsync(RegisterRequest request, HttpContext httpContext)
     {
+        ValidatePasswordByteLength(request.Password);
         var normalizedEmail = NormalizeEmail(request.Email);
         var normalizedNickname = NormalizeNickname(request.Nickname);
 
@@ -246,6 +248,7 @@ public class AuthService(
 
     public async Task<LoginResponse> LoginAsync(LoginRequest request, HttpContext httpContext)
     {
+        ValidatePasswordByteLength(request.Password);
         var normalizedNickname = NormalizeNickname(request.Nickname);
         var loginAttemptKey = BuildLoginAttemptKey(normalizedNickname, httpContext);
         using var attemptLock = await LoginAttemptLocks.AcquireAsync(loginAttemptKey, httpContext.RequestAborted);
@@ -300,6 +303,14 @@ public class AuthService(
             Email = user.Email,
             Role = DefaultUserRole
         };
+    }
+
+    private static void ValidatePasswordByteLength(string password)
+    {
+        if (!PasswordPolicy.IsWithinByteLimit(password))
+        {
+            throw new AppException(PasswordPolicy.TooLongMessage, StatusCodes.Status400BadRequest);
+        }
     }
 
     private static string NormalizeEmail(string email) =>

@@ -1,4 +1,6 @@
 using System.ComponentModel.DataAnnotations;
+using Wildlife_Sports_Day_Server.Infrastructure.Security;
+using Wildlife_Sports_Day_Server.Infrastructure.Validation;
 
 namespace Wildlife_Sports_Day_Server.Dtos.Requests;
 
@@ -14,11 +16,14 @@ public class RegisterRequest
     public string Nickname { get; init; } = null!;
 
     [Required(ErrorMessage = "비밀번호는 필수입니다.")]
-    [StringLength(100, MinimumLength = 8, ErrorMessage = "비밀번호는 최소 8자여야 합니다.")]
+    [PasswordByteLength]
+    [StringLength(PasswordPolicy.MaximumUtf8Bytes, MinimumLength = 8,
+        ErrorMessage = "비밀번호는 8자 이상, UTF-8 기준 72바이트 이내로 입력하십시오.")]
     [RegularExpression(@"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).+$",
         ErrorMessage = "비밀번호는 대소문자, 숫자, 특수문자를 포함해야 합니다.")]
     public string Password { get; init; } = null!;
 
     [Required(ErrorMessage = "비밀번호 확인은 필수입니다.")]
+    [PasswordByteLength]
     public string ConfirmPassword { get; init; } = null!;
 }

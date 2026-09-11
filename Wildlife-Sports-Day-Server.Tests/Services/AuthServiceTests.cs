@@ -814,6 +814,83 @@ public class AuthServiceTests : IDisposable
         Assert.Equal(8, response.UserId);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LoginAsync_PasswordAtByteLimit_AuthenticatesWithBcryptAsync(bool multibyte)
+    {
+        // Given
+        var userRepository = new Mock<IUserRepository>();
+        var codeRepository = new Mock<IEmailVerificationCodeRepository>();
+        var emailSender = new Mock<IEmailSender>();
+        var authenticationService = new TestAuthenticationService();
+        var context = CreateHttpContext(authenticationService);
+        var credential = multibyte ? new string('한', 24) : new string('x', 72);
+        var user = CreateUser();
+        user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(credential);
+        userRepository.Setup(repository => repository.FindByNicknameAsync("nickname")).ReturnsAsync(user);
+
+        // When
+        var response = await CreateService(userRepository, codeRepository, emailSender)
+            .LoginAsync(CreateLoginRequest("nickname", credential), context);
+
+        // Then
+        Assert.Equal(user.Id, response.UserId);
+        Assert.NotNull(authenticationService.SignedInPrincipal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LoginAsync_PasswordExceedsByteLimit_RejectsBeforeUserLookupAsync(bool multibyte)
+    {
+        // Given
+        var userRepository = new Mock<IUserRepository>(MockBehavior.Strict);
+        var codeRepository = new Mock<IEmailVerificationCodeRepository>(MockBehavior.Strict);
+        var emailSender = new Mock<IEmailSender>(MockBehavior.Strict);
+        var authenticationService = new TestAuthenticationService();
+        var context = CreateHttpContext(authenticationService);
+        var credential = multibyte ? new string('한', 25) : new string('x', 73);
+
+        // When
+        var exception = await Assert.ThrowsAsync<AppException>(() =>
+            CreateService(userRepository, codeRepository, emailSender)
+                .LoginAsync(CreateLoginRequest("nickname", credential), context));
+
+        // Then
+        Assert.Equal(StatusCodes.Status400BadRequest, exception.StatusCode);
+        Assert.Equal("비밀번호는 UTF-8 기준 72바이트 이내로 입력하십시오.", exception.Message);
+        Assert.Null(authenticationService.SignedInPrincipal);
+        userRepository.VerifyNoOtherCalls();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RegisterAsync_PasswordExceedsByteLimit_RejectsBeforeConsumingVerificationAsync(bool multibyte)
+    {
+        // Given
+        var userRepository = new Mock<IUserRepository>(MockBehavior.Strict);
+        var codeRepository = new Mock<IEmailVerificationCodeRepository>(MockBehavior.Strict);
+        var emailSender = new Mock<IEmailSender>(MockBehavior.Strict);
+        var credential = multibyte ? new string('한', 25) : new string('x', 73);
+        var request = new RegisterRequest { Email = "user@example.com", Nickname = "nickname" };
+        typeof(RegisterRequest).GetProperty(nameof(RegisterRequest.Password))!.SetValue(request, credential);
+        typeof(RegisterRequest).GetProperty(nameof(RegisterRequest.ConfirmPassword))!.SetValue(request, credential);
+        var context = CreateVerifiedEmailHttpContext(21);
+
+        // When
+        var exception = await Assert.ThrowsAsync<AppException>(() =>
+            CreateService(userRepository, codeRepository, emailSender).RegisterAsync(request, context));
+
+        // Then
+        Assert.Equal(StatusCodes.Status400BadRequest, exception.StatusCode);
+        Assert.Equal("비밀번호는 UTF-8 기준 72바이트 이내로 입력하십시오.", exception.Message);
+        Assert.Equal(21, context.Session.GetInt32("EmailVerification.VerifiedCodeId"));
+        userRepository.VerifyNoOtherCalls();
+        codeRepository.VerifyNoOtherCalls();
+    }
+
     private AuthService CreateService(
         Mock<IUserRepository> userRepository,
         Mock<IEmailVerificationCodeRepository> codeRepository,

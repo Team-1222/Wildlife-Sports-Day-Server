@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using Wildlife_Sports_Day_Server.Infrastructure.Validation;
 
 namespace Wildlife_Sports_Day_Server.Dtos.Requests;
 
@@ -9,5 +10,6 @@ public class LoginRequest
     public string Nickname { get; init; } = null!;
 
     [Required(ErrorMessage = "비밀번호는 필수입니다.")]
+    [PasswordByteLength]
     public string Password { get; init; } = null!;
 }
