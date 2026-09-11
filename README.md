@@ -25,9 +25,9 @@ ___
 
 ## 현재 적용
 - 모든 PR과 기능 브랜치에서 .NET 10 빌드와 xUnit 테스트를 실행합니다.
-- `develop` 반영 시 app/migrator 개발 이미지를 비공개 GHCR에 게시합니다.
-- `release/**` 반영 시 GitHub Actions 안에서 PostgreSQL, EF migrator, app, Caddy를 임시 실행해 배포를 리허설합니다.
-- `main` 반영 시 검증된 immutable image digest를 Tailscale SSH로 로컬 WSL 운영 환경에 배포합니다.
+- `develop`, `release/**`를 포함한 `main` 이외 브랜치에 push하면 app/migrator 개발 이미지를 비공개 GHCR에 게시합니다. PR과 수동 개발 CI 실행은 빌드·테스트만 수행합니다.
+- `main` 반영 시 공통 CI를 통과한 app/migrator 후보 이미지를 빌드하고, GitHub Actions 안에서 PostgreSQL, EF migrator, app, Caddy를 임시 실행해 배포를 리허설합니다.
+- 리허설을 통과한 동일 immutable image digest를 운영 태그로 승격하고, Tailscale SSH로 로컬 WSL 운영 환경에 배포합니다.
 - Tailscale SSH가 GitHub Actions와 로컬 WSL을 연결하고, GSMVS가 `wildlife-sports-day.https.gsmsv.site`의 공개 HTTPS를 처리합니다.
 - Caddy는 서버의 TCP 18080에서 GSMVS 요청을 받아 Docker 내부 ASP.NET 앱으로 전달합니다.
 - 운영 마이그레이션 전 PostgreSQL custom-format dump를 검증하고 최근 7개를 유지합니다.
