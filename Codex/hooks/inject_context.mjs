@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { dirname } from "node:path";
 import { ensureDir, fileExists, getString, logPath, outputPromptContext, parsePayload, readStdin, readTextIfSmall, writeText } from "./common.mjs";
-import { resolveCommitIssueContext } from "./commit_issue_context.mjs";
+import { commitIssueContextFileName, resolveCommitIssueContext } from "./commit_issue_context.mjs";
 
 const raw = await readStdin();
 const payload = parsePayload(raw);
@@ -13,16 +13,24 @@ if (!prompt) {
 
 const lower = prompt.toLowerCase();
 const snippets = [];
-const commitIssueContextPath = logPath("commit_issue_context.json");
+const sessionId = getString(payload, "session_id") || null;
+const commitIssueContextPath = logPath(commitIssueContextFileName(sessionId));
+const contextPaths = [...new Set([commitIssueContextPath, logPath("commit_issue_context.json")])];
 let previousCommitContext = null;
-try {
-  if (fileExists(commitIssueContextPath)) {
-    previousCommitContext = parsePayload(readTextIfSmall(commitIssueContextPath) ?? "");
+for (const path of contextPaths) {
+  try {
+    if (fileExists(path)) {
+      const context = parsePayload(readTextIfSmall(path) ?? "");
+      if (!sessionId || context.sessionId === sessionId) {
+        previousCommitContext = context;
+        break;
+      }
+    }
+  } catch {
+    // 읽을 수 없는 문맥은 건너뛰고 현재 작업의 커밋 요청을 확인합니다.
   }
-} catch {
-  // 문맥 파일을 읽지 못해도 새 커밋 요청의 이슈 확인은 계속합니다.
 }
-const commitContext = resolveCommitIssueContext(prompt, previousCommitContext, getString(payload, "session_id") || null);
+const commitContext = resolveCommitIssueContext(prompt, previousCommitContext, sessionId);
 
 function addSnippet(snippet) {
   if (!snippets.includes(snippet)) {

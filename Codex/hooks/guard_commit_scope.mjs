@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
 import { fileExists, getString, logPath, outputBlock, parsePayload, projectRoot, readStdin, readText } from "./common.mjs";
+import { commitIssueContextFileName } from "./commit_issue_context.mjs";
 
 const commitSplitPolicy = [
   "Split commits by implementation work unit and by individual code-review finding.",
@@ -27,16 +28,24 @@ function extractCommitMessages(commandText) {
 }
 
 function latestIssueContext() {
-  const path = logPath("commit_issue_context.json");
-  if (!fileExists(path)) {
-    return undefined;
+  const sessionId = getString(payload, "session_id") || null;
+  const paths = [...new Set([
+    logPath(commitIssueContextFileName(sessionId)),
+    logPath("commit_issue_context.json")
+  ])];
+  for (const path of paths) {
+    try {
+      if (fileExists(path)) {
+        const context = JSON.parse(readText(path));
+        if (!sessionId || context.sessionId === sessionId) {
+          return context;
+        }
+      }
+    } catch {
+      // 다른 작업의 문맥을 적용하지 않고 현재 작업의 이전 문맥을 확인합니다.
+    }
   }
-
-  try {
-    return JSON.parse(readText(path));
-  } catch {
-    return undefined;
-  }
+  return undefined;
 }
 
 function issueRefsFrom(messages) {

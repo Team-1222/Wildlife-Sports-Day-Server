@@ -1,3 +1,14 @@
+import { createHash } from "node:crypto";
+
+export function commitIssueContextFileName(sessionId = null) {
+  if (!sessionId) {
+    return "commit_issue_context.json";
+  }
+
+  const key = createHash("sha256").update(sessionId).digest("hex");
+  return `commit_issue_context.${key}.json`;
+}
+
 export function resolveCommitIssueContext(prompt, previousContext = null, sessionId = null) {
   const isCommitRequest = /(commit|git|pr|pull request|커밋|깃|풀리퀘스트|풀 리퀘스트|피알)/i.test(prompt);
   const issueMatch = prompt.match(/#\d+/);
