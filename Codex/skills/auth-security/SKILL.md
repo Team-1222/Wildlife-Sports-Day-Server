@@ -322,7 +322,12 @@ Use `ISession` only for non-authentication application state when it is genuinel
 
 ## Password Validation (Request DTO)
 
+회원가입과 로그인 비밀번호는 `PasswordPolicy.MaximumUtf8Bytes`(UTF-8 72바이트) 이하여야 합니다. 문자 수만으로 판단하거나 BCrypt에 전달하기 전에 비밀번호를 자르지 않습니다. DTO의 `PasswordByteLength` 검증과 서비스 진입부 검증을 함께 유지하며, 서비스는 초과 입력을 DB 조회나 이메일 인증 소비 전에 HTTP 400으로 거부합니다. 기존에 72바이트를 초과하는 비밀번호를 사용하던 계정은 비밀번호 재설정이 필요합니다.
+
 ```csharp
+using Wildlife_Sports_Day_Server.Infrastructure.Security;
+using Wildlife_Sports_Day_Server.Infrastructure.Validation;
+
 public class RegisterRequest
 {
     [Required(ErrorMessage = "이메일은 필수입니다.")]
@@ -334,9 +339,15 @@ public class RegisterRequest
     public string Nickname { get; init; } = null!;
 
     [Required(ErrorMessage = "비밀번호는 필수입니다.")]
-    [StringLength(100, MinimumLength = 8, ErrorMessage = "비밀번호는 최소 8자여야 합니다.")]
+    [PasswordByteLength]
+    [StringLength(PasswordPolicy.MaximumUtf8Bytes, MinimumLength = 8,
+        ErrorMessage = "비밀번호는 8자 이상, UTF-8 기준 72바이트 이내로 입력하십시오.")]
     [RegularExpression(@"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).+$",
         ErrorMessage = "비밀번호는 대소문자, 숫자, 특수문자를 포함해야 합니다.")]
     public string Password { get; init; } = null!;
+
+    [Required(ErrorMessage = "비밀번호 확인은 필수입니다.")]
+    [PasswordByteLength]
+    public string ConfirmPassword { get; init; } = null!;
 }
 ```
