@@ -2,6 +2,8 @@
 Microsoft Visual Studio Solution File, Format Version 12.00
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Wildlife-Sports-Day-Server", "Wildlife-Sports-Day-Server\Wildlife-Sports-Day-Server.csproj", "{836A8374-CB64-493E-9620-E28052E02D27}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Wildlife-Sports-Day-Server.Tests", "Wildlife-Sports-Day-Server.Tests\Wildlife-Sports-Day-Server.Tests.csproj", "{F42A6837-AC4C-4D98-9950-291D78FA7E1B}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -12,5 +14,9 @@ Global
 		{836A8374-CB64-493E-9620-E28052E02D27}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{836A8374-CB64-493E-9620-E28052E02D27}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{836A8374-CB64-493E-9620-E28052E02D27}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F42A6837-AC4C-4D98-9950-291D78FA7E1B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F42A6837-AC4C-4D98-9950-291D78FA7E1B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F42A6837-AC4C-4D98-9950-291D78FA7E1B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F42A6837-AC4C-4D98-9950-291D78FA7E1B}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

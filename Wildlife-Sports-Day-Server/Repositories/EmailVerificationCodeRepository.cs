@@ -1,0 +1,131 @@
+using Microsoft.EntityFrameworkCore;
+using Wildlife_Sports_Day_Server.Entities;
+using Wildlife_Sports_Day_Server.Infrastructure;
+
+namespace Wildlife_Sports_Day_Server.Repositories;
+
+public class EmailVerificationCodeRepository(AppDbContext dbContext) : IEmailVerificationCodeRepository
+{
+    public async Task<EmailVerificationCode?> FindByIdAsync(int id) =>
+        await dbContext.EmailVerificationCodes
+            .FirstOrDefaultAsync(code => code.Id == id);
+
+    public async Task<EmailVerificationCode?> FindLatestByEmailAsync(string email) =>
+        await dbContext.EmailVerificationCodes
+            .Where(code => code.Email == email)
+            .OrderByDescending(code => code.CreatedAt)
+            .ThenByDescending(code => code.Id)
+            .FirstOrDefaultAsync();
+
+    public async Task<EmailVerificationCode?> FindLatestActiveByEmailAsync(string email) =>
+        await dbContext.EmailVerificationCodes
+            .Where(code => code.Email == email
+                && (code.Status == EmailVerificationCodeStatus.Pending
+                    || code.Status == EmailVerificationCodeStatus.Verified))
+            .OrderByDescending(code => code.CreatedAt)
+            .ThenByDescending(code => code.Id)
+            .FirstOrDefaultAsync();
+
+    public async Task<EmailVerificationCode?> FindLatestSentByEmailAsync(string email) =>
+        await dbContext.EmailVerificationCodes
+            .AsNoTracking()
+            .Where(code => code.Email == email && code.Status != EmailVerificationCodeStatus.SendFailed)
+            .OrderByDescending(code => code.CreatedAt)
+            .ThenByDescending(code => code.Id)
+            .FirstOrDefaultAsync();
+
+    public async Task<EmailVerificationCode> SaveAsync(EmailVerificationCode verificationCode)
+    {
+        dbContext.EmailVerificationCodes.Add(verificationCode);
+        await dbContext.SaveChangesAsync();
+        return verificationCode;
+    }
+
+    public async Task UpdateAsync(EmailVerificationCode verificationCode)
+    {
+        dbContext.EmailVerificationCodes.Update(verificationCode);
+        await dbContext.SaveChangesAsync();
+    }
+
+    public async Task<bool> TryVerifyAsync(int verificationCodeId, int maxAttempts)
+    {
+        var now = DateTime.UtcNow;
+        var updatedCount = await dbContext.EmailVerificationCodes
+            .Where(code => code.Id == verificationCodeId
+                && code.Status == EmailVerificationCodeStatus.Pending
+                && code.AttemptCount < maxAttempts
+                && code.ExpiresAt >= now)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(code => code.Status, EmailVerificationCodeStatus.Verified)
+                .SetProperty(code => code.VerifiedAt, now));
+
+        return updatedCount == 1;
+    }
+
+    public async Task<EmailVerificationCode?> IncrementAttemptCountAsync(int verificationCodeId, int maxAttempts)
+    {
+        var now = DateTime.UtcNow;
+        await dbContext.EmailVerificationCodes
+            .Where(code => code.Id == verificationCodeId
+                && code.Status == EmailVerificationCodeStatus.Pending
+                && code.AttemptCount < maxAttempts)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(code => code.AttemptCount, code => code.AttemptCount + 1)
+                .SetProperty(
+                    code => code.Status,
+                    code => code.AttemptCount + 1 >= maxAttempts
+                        ? EmailVerificationCodeStatus.AttemptLimitExceeded
+                        : code.Status)
+                .SetProperty(
+                    code => code.UnavailableAt,
+                    code => code.AttemptCount + 1 >= maxAttempts
+                        ? now
+                        : code.UnavailableAt));
+
+        return await dbContext.EmailVerificationCodes
+            .AsNoTracking()
+            .FirstOrDefaultAsync(code => code.Id == verificationCodeId);
+    }
+
+    public async Task RevokeUsableByEmailAsync(string email)
+    {
+        var codes = await dbContext.EmailVerificationCodes
+            .Where(code => code.Email == email
+                && (code.Status == EmailVerificationCodeStatus.Pending
+                    || code.Status == EmailVerificationCodeStatus.Verified))
+            .ToListAsync();
+
+        var now = DateTime.UtcNow;
+        foreach (var code in codes)
+        {
+            code.Status = EmailVerificationCodeStatus.Revoked;
+            code.UnavailableAt = now;
+        }
+
+        await dbContext.SaveChangesAsync();
+    }
+
+    public async Task RevokeOlderActiveByEmailAsync(string email, int retainedCodeId)
+    {
+        var retainedCode = await dbContext.EmailVerificationCodes
+            .AsNoTracking()
+            .Where(code => code.Email == email && code.Id == retainedCodeId)
+            .Select(code => new { code.CreatedAt })
+            .SingleOrDefaultAsync();
+        if (retainedCode is null)
+        {
+            return;
+        }
+
+        var now = DateTime.UtcNow;
+        await dbContext.EmailVerificationCodes
+            .Where(code => code.Email == email
+                && (code.CreatedAt < retainedCode.CreatedAt
+                    || (code.CreatedAt == retainedCode.CreatedAt && code.Id < retainedCodeId))
+                && (code.Status == EmailVerificationCodeStatus.Pending
+                    || code.Status == EmailVerificationCodeStatus.Verified))
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(code => code.Status, EmailVerificationCodeStatus.Revoked)
+                .SetProperty(code => code.UnavailableAt, now));
+    }
+}

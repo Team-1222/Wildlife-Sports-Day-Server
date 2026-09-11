@@ -1,0 +1,4 @@
+interface:
+  display_name: "Backup Guide"
+  short_description: "DB and code backup guardrails"
+  default_prompt: "Use this skill before risky database, migration, deployment, deletion, or broad code changes in Wildlife Survival Server."

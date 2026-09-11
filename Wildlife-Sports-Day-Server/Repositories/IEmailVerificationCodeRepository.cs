@@ -1,0 +1,17 @@
+using Wildlife_Sports_Day_Server.Entities;
+
+namespace Wildlife_Sports_Day_Server.Repositories;
+
+public interface IEmailVerificationCodeRepository
+{
+    Task<EmailVerificationCode?> FindByIdAsync(int id);
+    Task<EmailVerificationCode?> FindLatestByEmailAsync(string email);
+    Task<EmailVerificationCode?> FindLatestSentByEmailAsync(string email);
+    Task<EmailVerificationCode?> FindLatestActiveByEmailAsync(string email);
+    Task<EmailVerificationCode> SaveAsync(EmailVerificationCode verificationCode);
+    Task UpdateAsync(EmailVerificationCode verificationCode);
+    Task<bool> TryVerifyAsync(int verificationCodeId, int maxAttempts);
+    Task<EmailVerificationCode?> IncrementAttemptCountAsync(int verificationCodeId, int maxAttempts);
+    Task RevokeUsableByEmailAsync(string email);
+    Task RevokeOlderActiveByEmailAsync(string email, int retainedCodeId);
+}

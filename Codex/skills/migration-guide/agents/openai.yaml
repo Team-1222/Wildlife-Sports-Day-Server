@@ -1,0 +1,4 @@
+interface:
+  display_name: "Migration Guide"
+  short_description: "EF Core migration workflow guardrails"
+  default_prompt: "Use this skill when planning, creating, reviewing, or applying EF Core migrations for Wildlife Survival Server."
