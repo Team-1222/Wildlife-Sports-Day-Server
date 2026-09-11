@@ -174,3 +174,26 @@ test("여러 지정 번호 중 커밋마다 하나만 허용하며 새 요청은
     assert.equal(guard("session-a", "#2"), "");
   });
 });
+
+test("GitHub 로그인 답변과 일반 영어 문구를 커밋 요청으로 오인하지 않습니다", () => {
+  const pending = resolveCommitIssueContext("커밋해줘", null, "session-a");
+  for (const prompt of ["GitHub 인증을 완료했습니다.", "깃허브 로그인을 완료했습니다.", "approved application"]) {
+    assert.equal(resolveCommitIssueContext(prompt, pending, "session-a"), null);
+  }
+  for (const prompt of ["git commit 해줘", "PR 만들어줘", "커밋해줘", "깃 커밋해줘"]) {
+    assert.equal(resolveCommitIssueContext(prompt, null, "session-a").needsIssueConfirmation, true);
+  }
+});
+
+test("GitHub 인증 후속 답변이 기존 커밋 번호를 확인 대기로 바꾸지 않습니다", () => {
+  withHookFixture(({ submit, guard }) => {
+    submit("session-a", "일반 커밋은 #13, AI 커밋은 #1로 진행");
+    submit("session-a", JSON.stringify([{
+      question: "GitHub 재인증을 위해 브라우저에서 승인해 주세요.",
+      answer: "인증을 완료했습니다."
+    }]));
+    assert.equal(guard("session-a", "#13"), "");
+    assert.equal(guard("session-a", "#1"), "");
+    assert.match(guard("session-a", "#2"), /does not match/);
+  });
+});

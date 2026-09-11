@@ -10,7 +10,7 @@ export function commitIssueContextFileName(sessionId = null) {
 }
 
 export function resolveCommitIssueContext(prompt, previousContext = null, sessionId = null) {
-  const isCommitRequest = /(commit|git|pr|pull request|커밋|깃|풀리퀘스트|풀 리퀘스트|피알)/i.test(prompt);
+  const isCommitRequest = /\b(?:commit|git|pr|pull request)\b|커밋|깃(?!허브)|풀리퀘스트|풀 리퀘스트|피알/i.test(prompt);
   const issueRefs = [...new Set(prompt.match(/#\d+/g) ?? [])];
   const noIssueConfirmed = /(관련\s*)?이슈\s*(없|없어|없음)|이슈\s*번호\s*(없|없어|없음)|no\s+(related\s+)?issue|without\s+issue/i.test(prompt);
   const sameSession = !previousContext?.sessionId || previousContext.sessionId === sessionId;
